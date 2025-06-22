@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "EHanda",
+    "slug": "EHanda",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/EHandaLogo.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/EHandaLogo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow EHanda to use your location for finding evacuation routes."
+        }
+      ]
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "This app uses your location to find nearby evacuation centers and safe routes.",
+        "NSLocationAlwaysUsageDescription": "This app uses your location to find nearby evacuation centers and safe routes."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/EHandaLogo.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+      "config": {
+        "googleMaps": {
+          "apiKey": "YOUR_GOOGLE_API_KEY_HERE"
+        }
+      }
+    },
+    "web": {
+      "favicon": "./assets/EHandaLogo.png"
+    }
+  }
+}
