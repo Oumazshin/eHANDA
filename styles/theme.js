@@ -83,6 +83,11 @@ export const SIZES = {
   cardRadius: 12,
   buttonHeight: 48,
   padding: 16,
+
+  // New sizes for tab bar
+  tabBarHeight: 56, // Match the height defined in MainTabs
+  tabBarPadding: 16, // Extra padding for bottom content
+  screenPadding: 24, // General screen padding
 };
 
 // Common shadows

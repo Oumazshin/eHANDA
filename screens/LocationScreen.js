@@ -10,14 +10,12 @@ import {
   Dimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import MapView, { Marker, Polyline } from "react-native-maps"; // This is the proper import
+import MapView, { Marker, Polyline } from "react-native-maps";
 import * as Location from "expo-location";
 import { useFocusEffect } from "@react-navigation/native";
-
-// Import theme properly
 import { COLORS, FONTS, SIZES, SHADOWS, LAYOUT } from "../styles/theme";
 
-// Sta Monica, Hagonoy, Bulacan region coordinates
+// Map region and data constants
 const REGION = {
   latitude: 14.8321,
   longitude: 120.7354,
@@ -25,83 +23,80 @@ const REGION = {
   longitudeDelta: 0.02,
 };
 
-// Evacuation centers in Sta Monica
-const EVACUATION_CENTERS = [
-  {
-    id: 1,
-    name: "Sta Monica Elementary School",
-    latitude: 14.8325,
-    longitude: 120.736,
-    type: "evacuation",
-  },
-  {
-    id: 2,
-    name: "Sta Monica Community Center",
-    latitude: 14.8342,
-    longitude: 120.7375,
-    type: "evacuation",
-  },
-  {
-    id: 3,
-    name: "Hagonoy Municipal Evacuation Center",
-    latitude: 14.831,
-    longitude: 120.734,
-    type: "evacuation",
-  },
-];
+const LOCATIONS = {
+  EVACUATION_CENTERS: [
+    {
+      id: 1,
+      name: "Sta Monica Elementary School",
+      latitude: 14.8325,
+      longitude: 120.736,
+      type: "evacuation",
+    },
+    {
+      id: 2,
+      name: "Sta Monica Community Center",
+      latitude: 14.8342,
+      longitude: 120.7375,
+      type: "evacuation",
+    },
+    {
+      id: 3,
+      name: "Hagonoy Municipal Evacuation Center",
+      latitude: 14.831,
+      longitude: 120.734,
+      type: "evacuation",
+    },
+  ],
+  FLOOD_ZONES: [
+    {
+      id: 1,
+      name: "Junction Area",
+      latitude: 14.833,
+      longitude: 120.7365,
+      type: "flood",
+      radius: 150,
+    },
+    {
+      id: 2,
+      name: "Riverside Area",
+      latitude: 14.835,
+      longitude: 120.733,
+      type: "flood",
+      radius: 200,
+    },
+    {
+      id: 3,
+      name: "Low-lying Residential Zone",
+      latitude: 14.8315,
+      longitude: 120.7385,
+      type: "flood",
+      radius: 180,
+    },
+  ],
+  DANGER_ZONES: [
+    {
+      id: 1,
+      name: "Bridge Crossing",
+      latitude: 14.8335,
+      longitude: 120.7345,
+      type: "danger",
+      radius: 100,
+    },
+    {
+      id: 2,
+      name: "Power Station Area",
+      latitude: 14.8355,
+      longitude: 120.737,
+      type: "danger",
+      radius: 120,
+    },
+  ],
+};
 
-// Flood prone areas in Sta Monica
-const FLOOD_ZONES = [
-  {
-    id: 1,
-    name: "Junction Area",
-    latitude: 14.833,
-    longitude: 120.7365,
-    type: "flood",
-    radius: 150,
-  },
-  {
-    id: 2,
-    name: "Riverside Area",
-    latitude: 14.835,
-    longitude: 120.733,
-    type: "flood",
-    radius: 200,
-  },
-  {
-    id: 3,
-    name: "Low-lying Residential Zone",
-    latitude: 14.8315,
-    longitude: 120.7385,
-    type: "flood",
-    radius: 180,
-  },
-];
-
-// Danger zones in Sta Monica
-const DANGER_ZONES = [
-  {
-    id: 1,
-    name: "Bridge Crossing",
-    latitude: 14.8335,
-    longitude: 120.7345,
-    type: "danger",
-    radius: 100,
-  },
-  {
-    id: 2,
-    name: "Power Station Area",
-    latitude: 14.8355,
-    longitude: 120.737,
-    type: "danger",
-    radius: 120,
-  },
-];
-
-// All nodes for Dijkstra's algorithm
+// Graph nodes and edges for pathfinding
 const GRAPH_NODES = [
   { id: "start", type: "node" }, // Will be replaced with user's current location
-  ...EVACUATION_CENTERS.map((center) => ({
+  ...LOCATIONS.EVACUATION_CENTERS.map((center) => ({
     id: `evac-${center.id}`,
     latitude: center.latitude,
     longitude: center.longitude,
@@ -114,7 +109,6 @@ const GRAPH_NODES = [
   { id: "node-5", latitude: 14.8315, longitude: 120.7365, type: "node" },
 ];
 
-// Safety ratings: 1 (safe) to 10 (dangerous)
 const GRAPH_EDGES = [
   { from: "node-1", to: "evac-1", distance: 0.5, safety: 2 },
   { from: "node-2", to: "evac-1", distance: 0.3, safety: 1 },
@@ -124,7 +118,6 @@ const GRAPH_EDGES = [
   { from: "node-5", to: "node-4", distance: 0.7, safety: 7 },
   { from: "node-4", to: "evac-2", distance: 0.2, safety: 3 },
   { from: "node-5", to: "evac-3", distance: 0.8, safety: 5 },
-  // More edges will be dynamically created based on user's location
 ];
 
 const LocationScreen = ({ navigation = {} }) => {
@@ -136,10 +129,10 @@ const LocationScreen = ({ navigation = {} }) => {
   const [routeSummary, setRouteSummary] = useState(null);
   const mapRef = useRef(null);
 
-  // Request location permissions and get current location
+  // Get current location
   useEffect(() => {
     (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
+      const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
         setErrorMsg("Permission to access location was denied");
         setLoading(false);
@@ -147,18 +140,15 @@ const LocationScreen = ({ navigation = {} }) => {
       }
 
       try {
-        let location = await Location.getCurrentPositionAsync({
+        const location = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
         });
         setLocation(location);
       } catch (error) {
         setErrorMsg("Could not get current location");
-        // Fall back to Sta Monica center if we can't get user's location
+        // Fall back to Sta Monica center
         setLocation({
-          coords: {
-            latitude: REGION.latitude,
-            longitude: REGION.longitude,
-          },
+          coords: { latitude: REGION.latitude, longitude: REGION.longitude },
         });
       } finally {
         setLoading(false);
@@ -166,7 +156,7 @@ const LocationScreen = ({ navigation = {} }) => {
     })();
   }, []);
 
-  // Reset route when screen comes into focus
+  // Reset route on screen focus
   useFocusEffect(
     React.useCallback(() => {
       return () => {
@@ -177,7 +167,102 @@ const LocationScreen = ({ navigation = {} }) => {
     }, [])
   );
 
-  // Dijkstra's Algorithm Implementation
+  // Helper functions for distance and safety calculations
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // Earth radius in km
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+
+  const calculateSafetyRating = (latitude, longitude) => {
+    let maxDanger = 1; // Default safety
+
+    // Check proximity to flood zones
+    [...LOCATIONS.FLOOD_ZONES, ...LOCATIONS.DANGER_ZONES].forEach((zone) => {
+      const distance =
+        calculateDistance(latitude, longitude, zone.latitude, zone.longitude) *
+        1000; // to meters
+      if (distance < zone.radius) {
+        const dangerFactor =
+          (zone.type === "danger" ? 8 : 5) * (1 - distance / zone.radius);
+        maxDanger = Math.max(maxDanger, dangerFactor);
+      }
+    });
+
+    return Math.round(maxDanger);
+  };
+
+  const getSafetyRating = (rating) =>
+    rating < 3
+      ? { text: "Safe", color: "#4CAF50" }
+      : rating < 7
+      ? { text: "Caution", color: "#FF9800" }
+      : { text: "Dangerous", color: "#F44336" };
+
+  // Dijkstra's algorithm implementation
+  const dijkstra = (nodes, edges, startId, endId) => {
+    const distances = {},
+      previous = {},
+      safetyRatings = {};
+    const unvisited = new Set();
+
+    // Initialize
+    nodes.forEach((node) => {
+      distances[node.id] = node.id === startId ? 0 : Infinity;
+      safetyRatings[node.id] = node.id === startId ? 0 : Infinity;
+      previous[node.id] = null;
+      unvisited.add(node.id);
+    });
+
+    while (unvisited.size > 0) {
+      // Find unvisited node with minimum distance
+      let current = [...unvisited].reduce(
+        (min, nodeId) => (distances[nodeId] < distances[min] ? nodeId : min),
+        [...unvisited][0]
+      );
+
+      if (distances[current] === Infinity || current === endId) break;
+      unvisited.delete(current);
+
+      // Update distances to neighbors
+      edges
+        .filter((edge) => edge.from === current)
+        .forEach((edge) => {
+          const { to: neighbor, distance, safety } = edge;
+          const weightedDistance = 0.7 * distance + 0.3 * (safety / 10);
+          const tentativeDistance = distances[current] + weightedDistance;
+
+          if (tentativeDistance < distances[neighbor]) {
+            distances[neighbor] = tentativeDistance;
+            safetyRatings[neighbor] = safetyRatings[current] + safety;
+            previous[neighbor] = current;
+          }
+        });
+    }
+
+    // Build path
+    const path = [];
+    let current = endId;
+    while (current) {
+      path.unshift(current);
+      current = previous[current];
+    }
+
+    return {
+      path,
+      distance: distances[endId] === Infinity ? 0 : distances[endId],
+      safety: path.length <= 1 ? 10 : safetyRatings[endId] / (path.length - 1),
+    };
+  };
+
+  // Find safe route to evacuation center
   const findSafeRoute = (destinationId) => {
     setLoading(true);
 
@@ -187,11 +272,11 @@ const LocationScreen = ({ navigation = {} }) => {
       return;
     }
 
-    // Create a dynamic graph based on current location
+    // Create dynamic graph with current location
     const currentGraph = [...GRAPH_NODES];
     const currentEdges = [...GRAPH_EDGES];
 
-    // Add user's current position as the start node
+    // Update start node with current location
     currentGraph[0] = {
       id: "start",
       latitude: location.coords.latitude,
@@ -201,7 +286,6 @@ const LocationScreen = ({ navigation = {} }) => {
 
     // Add connections from start to other nodes
     GRAPH_NODES.slice(1).forEach((node) => {
-      // Calculate distance and safety rating based on proximity to danger/flood zones
       const distance = calculateDistance(
         location.coords.latitude,
         location.coords.longitude,
@@ -209,30 +293,29 @@ const LocationScreen = ({ navigation = {} }) => {
         node.longitude
       );
 
-      const safety = calculateSafetyRating(node.latitude, node.longitude);
-
-      // Only add connections if they're within reasonable distance (1km)
       if (distance < 1) {
+        // Only connect if within 1km
         currentEdges.push({
           from: "start",
           to: node.id,
           distance,
-          safety,
+          safety: calculateSafetyRating(node.latitude, node.longitude),
         });
       }
     });
 
     // Find target evacuation center
-    const destination = EVACUATION_CENTERS.find(
+    const destination = LOCATIONS.EVACUATION_CENTERS.find(
       (center) => `evac-${center.id}` === destinationId
     );
+
     if (!destination) {
       Alert.alert("Error", "Selected evacuation center not found");
       setLoading(false);
       return;
     }
 
-    // Run Dijkstra's algorithm for shortest+safest path
+    // Run Dijkstra's algorithm
     const result = dijkstra(currentGraph, currentEdges, "start", destinationId);
 
     if (result.path.length === 0) {
@@ -247,10 +330,7 @@ const LocationScreen = ({ navigation = {} }) => {
     // Convert node IDs to coordinates for the route
     const routeCoordinates = result.path.map((nodeId) => {
       const node = currentGraph.find((n) => n.id === nodeId);
-      return {
-        latitude: node.latitude,
-        longitude: node.longitude,
-      };
+      return { latitude: node.latitude, longitude: node.longitude };
     });
 
     // Calculate ETA (assuming average walking speed of 5km/h)
@@ -263,11 +343,9 @@ const LocationScreen = ({ navigation = {} }) => {
       eta: etaMinutes,
       safety: getSafetyRating(result.safety),
     });
-
-    // Set the selected evacuation center
     setSelectedEvacuation(destination);
 
-    // Fit map to show the entire route
+    // Fit map to route
     if (mapRef.current) {
       mapRef.current.fitToCoordinates(routeCoordinates, {
         edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
@@ -278,133 +356,7 @@ const LocationScreen = ({ navigation = {} }) => {
     setLoading(false);
   };
 
-  // Helper function to calculate distance between two points
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371; // Radius of the Earth in km
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const distance = R * c;
-    return distance;
-  };
-
-  // Calculate safety rating based on proximity to danger/flood zones
-  const calculateSafetyRating = (latitude, longitude) => {
-    let maxDanger = 1; // Default safety
-
-    // Check proximity to flood zones
-    FLOOD_ZONES.forEach((zone) => {
-      const distance =
-        calculateDistance(latitude, longitude, zone.latitude, zone.longitude) *
-        1000; // in meters
-      if (distance < zone.radius) {
-        const dangerFactor = 5 * (1 - distance / zone.radius); // 5 is medium danger
-        maxDanger = Math.max(maxDanger, dangerFactor);
-      }
-    });
-
-    // Check proximity to danger zones
-    DANGER_ZONES.forEach((zone) => {
-      const distance =
-        calculateDistance(latitude, longitude, zone.latitude, zone.longitude) *
-        1000; // in meters
-      if (distance < zone.radius) {
-        const dangerFactor = 8 * (1 - distance / zone.radius); // 10 is max danger
-        maxDanger = Math.max(maxDanger, dangerFactor);
-      }
-    });
-
-    return Math.round(maxDanger);
-  };
-
-  // Convert numerical safety rating to text
-  const getSafetyRating = (rating) => {
-    if (rating < 3) return { text: "Safe", color: "#4CAF50" };
-    if (rating < 7) return { text: "Caution", color: "#FF9800" };
-    return { text: "Dangerous", color: "#F44336" };
-  };
-
-  // Dijkstra's algorithm implementation
-  const dijkstra = (nodes, edges, startId, endId) => {
-    // Initialize distances with infinity for all nodes except start
-    const distances = {};
-    const previous = {};
-    const safetyRatings = {};
-    const unvisited = new Set();
-
-    nodes.forEach((node) => {
-      distances[node.id] = node.id === startId ? 0 : Infinity;
-      safetyRatings[node.id] = node.id === startId ? 0 : Infinity;
-      previous[node.id] = null;
-      unvisited.add(node.id);
-    });
-
-    while (unvisited.size > 0) {
-      // Find unvisited node with minimum distance
-      let current = null;
-      let minDistance = Infinity;
-
-      unvisited.forEach((nodeId) => {
-        if (distances[nodeId] < minDistance) {
-          minDistance = distances[nodeId];
-          current = nodeId;
-        }
-      });
-
-      // Exit if we can't go further or reached destination
-      if (current === null || current === endId) break;
-
-      unvisited.delete(current);
-
-      // Get all connecting edges
-      const currentEdges = edges.filter((edge) => edge.from === current);
-
-      currentEdges.forEach((edge) => {
-        const neighbor = edge.to;
-
-        // Weight function: combine distance and safety (0.7 * distance + 0.3 * safety)
-        const weightedDistance = 0.7 * edge.distance + 0.3 * (edge.safety / 10);
-        const tentativeDistance = distances[current] + weightedDistance;
-        const tentativeSafety = safetyRatings[current] + edge.safety;
-
-        if (tentativeDistance < distances[neighbor]) {
-          distances[neighbor] = tentativeDistance;
-          safetyRatings[neighbor] = tentativeSafety;
-          previous[neighbor] = current;
-        }
-      });
-    }
-
-    // Construct the path
-    const path = [];
-    let current = endId;
-
-    if (previous[current] !== null || current === startId) {
-      while (current !== null) {
-        path.unshift(current);
-        current = previous[current];
-      }
-    }
-
-    // Calculate total distance and average safety rating
-    let totalDistance = distances[endId];
-    let totalSafety =
-      safetyRatings[endId] / (path.length > 1 ? path.length - 1 : 1);
-
-    return {
-      path,
-      distance: totalDistance === Infinity ? 0 : totalDistance,
-      safety: totalSafety === Infinity ? 10 : totalSafety,
-    };
-  };
-
-  // Reset the map view
+  // UI handlers
   const handleReset = () => {
     setRoute(null);
     setSelectedEvacuation(null);
@@ -423,7 +375,6 @@ const LocationScreen = ({ navigation = {} }) => {
     }
   };
 
-  // Download map for offline use
   const handleDownloadMap = () => {
     Alert.alert(
       "Download Map",
@@ -432,34 +383,55 @@ const LocationScreen = ({ navigation = {} }) => {
         { text: "Cancel", style: "cancel" },
         {
           text: "Download",
-          onPress: () => {
-            // Simulate download with a timeout
+          onPress: () =>
             setTimeout(() => {
               Alert.alert(
                 "Download Complete",
                 "Map data is now available offline"
               );
-            }, 2000);
-          },
+            }, 2000),
         },
       ]
     );
   };
 
-  // Determine marker color based on type
-  const getMarkerColor = (type) => {
-    switch (type) {
-      case "evacuation":
-        return "#4CAF50"; // Green
-      case "flood":
-        return "#FF9800"; // Orange
-      case "danger":
-        return "#F44336"; // Red
-      default:
-        return "#3884ff"; // Blue
-    }
+  // Render markers based on location type
+  const renderMapMarkers = () => {
+    const allLocations = [
+      ...LOCATIONS.EVACUATION_CENTERS.map((loc) => ({
+        ...loc,
+        description: "Evacuation Center",
+        onPress: () => findSafeRoute(`evac-${loc.id}`),
+      })),
+      ...LOCATIONS.FLOOD_ZONES.map((loc) => ({
+        ...loc,
+        description: "Flood Prone Area",
+      })),
+      ...LOCATIONS.DANGER_ZONES.map((loc) => ({
+        ...loc,
+        description: "Danger Zone",
+      })),
+    ];
+
+    return allLocations.map((loc) => (
+      <Marker
+        key={`${loc.type}-${loc.id}`}
+        coordinate={{ latitude: loc.latitude, longitude: loc.longitude }}
+        pinColor={
+          loc.type === "evacuation"
+            ? "#4CAF50"
+            : loc.type === "flood"
+            ? "#FF9800"
+            : "#F44336"
+        }
+        title={loc.name}
+        description={loc.description}
+        onPress={loc.onPress}
+      />
+    ));
   };
 
+  // Loading screen
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -476,11 +448,9 @@ const LocationScreen = ({ navigation = {} }) => {
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Sta Monica, Hagonoy</Text>
-          <View style={styles.headerButtons}>
-            <TouchableOpacity style={styles.headerButton} onPress={handleReset}>
-              <Ionicons name="refresh" size={24} color="#3884ff" />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={styles.headerButton} onPress={handleReset}>
+            <Ionicons name="refresh" size={24} color="#3884ff" />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.mapContainer}>
@@ -497,50 +467,8 @@ const LocationScreen = ({ navigation = {} }) => {
               showsUserLocation
               showsMyLocationButton
             >
-              {/* Evacuation Centers */}
-              {EVACUATION_CENTERS.map((center) => (
-                <Marker
-                  key={`evac-${center.id}`}
-                  coordinate={{
-                    latitude: center.latitude,
-                    longitude: center.longitude,
-                  }}
-                  pinColor={getMarkerColor(center.type)}
-                  title={center.name}
-                  description="Evacuation Center"
-                  onPress={() => findSafeRoute(`evac-${center.id}`)}
-                />
-              ))}
+              {renderMapMarkers()}
 
-              {/* Flood Zones */}
-              {FLOOD_ZONES.map((zone) => (
-                <Marker
-                  key={`flood-${zone.id}`}
-                  coordinate={{
-                    latitude: zone.latitude,
-                    longitude: zone.longitude,
-                  }}
-                  pinColor={getMarkerColor(zone.type)}
-                  title={zone.name}
-                  description="Flood Prone Area"
-                />
-              ))}
-
-              {/* Danger Zones */}
-              {DANGER_ZONES.map((zone) => (
-                <Marker
-                  key={`danger-${zone.id}`}
-                  coordinate={{
-                    latitude: zone.latitude,
-                    longitude: zone.longitude,
-                  }}
-                  pinColor={getMarkerColor(zone.type)}
-                  title={zone.name}
-                  description="Danger Zone"
-                />
-              ))}
-
-              {/* Route Display */}
               {route && (
                 <Polyline
                   coordinates={route}
@@ -567,39 +495,33 @@ const LocationScreen = ({ navigation = {} }) => {
             </Text>
 
             <View style={styles.routeDetails}>
-              <View style={styles.routeDetail}>
-                <Ionicons name="time-outline" size={20} color="#666" />
-                <Text style={styles.routeDetailText}>
-                  ETA: {routeSummary.eta} minutes
-                </Text>
-              </View>
-
-              <View style={styles.routeDetail}>
-                <Ionicons name="walk-outline" size={20} color="#666" />
-                <Text style={styles.routeDetailText}>
-                  Distance: {routeSummary.distance} km
-                </Text>
-              </View>
-
-              <View style={styles.routeDetail}>
-                <Ionicons
-                  name={
+              {[
+                {
+                  icon: "time-outline",
+                  text: `ETA: ${routeSummary.eta} minutes`,
+                  color: "#666",
+                },
+                {
+                  icon: "walk-outline",
+                  text: `Distance: ${routeSummary.distance} km`,
+                  color: "#666",
+                },
+                {
+                  icon:
                     routeSummary.safety.text === "Safe"
                       ? "shield-checkmark"
-                      : "warning"
-                  }
-                  size={20}
-                  color={routeSummary.safety.color}
-                />
-                <Text
-                  style={[
-                    styles.routeDetailText,
-                    { color: routeSummary.safety.color },
-                  ]}
-                >
-                  Safety: {routeSummary.safety.text}
-                </Text>
-              </View>
+                      : "warning",
+                  text: `Safety: ${routeSummary.safety.text}`,
+                  color: routeSummary.safety.color,
+                },
+              ].map((item, index) => (
+                <View key={index} style={styles.routeDetail}>
+                  <Ionicons name={item.icon} size={20} color={item.color} />
+                  <Text style={[styles.routeDetailText, { color: item.color }]}>
+                    {item.text}
+                  </Text>
+                </View>
+              ))}
             </View>
 
             <TouchableOpacity
@@ -619,24 +541,21 @@ const LocationScreen = ({ navigation = {} }) => {
           <View style={styles.legendContainer}>
             <Text style={styles.legendTitle}>Map Legend</Text>
             <View style={styles.legendItems}>
-              <View style={styles.legendItem}>
-                <View
-                  style={[styles.legendColor, { backgroundColor: "#4CAF50" }]}
-                />
-                <Text style={styles.legendText}>Evacuation Centers</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View
-                  style={[styles.legendColor, { backgroundColor: "#FF9800" }]}
-                />
-                <Text style={styles.legendText}>Flood Areas</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View
-                  style={[styles.legendColor, { backgroundColor: "#F44336" }]}
-                />
-                <Text style={styles.legendText}>Danger Zones</Text>
-              </View>
+              {[
+                { color: "#4CAF50", text: "Evacuation Centers" },
+                { color: "#FF9800", text: "Flood Areas" },
+                { color: "#F44336", text: "Danger Zones" },
+              ].map((item, index) => (
+                <View key={index} style={styles.legendItem}>
+                  <View
+                    style={[
+                      styles.legendColor,
+                      { backgroundColor: item.color },
+                    ]}
+                  />
+                  <Text style={styles.legendText}>{item.text}</Text>
+                </View>
+              ))}
             </View>
             <Text style={styles.legendHelp}>
               Tap any evacuation center to find the safest route.
@@ -672,47 +591,29 @@ const LocationScreen = ({ navigation = {} }) => {
 };
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-  },
-  container: {
-    flex: 1,
-    padding: 16,
-  },
+  safeArea: { flex: 1, backgroundColor: "#f5f5f5" },
+  container: { flex: 1, padding: 16 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 16,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  headerButtons: {
-    flexDirection: "row",
-  },
-  headerButton: {
-    marginLeft: 16,
-  },
+  headerTitle: { fontSize: 20, fontWeight: "bold", color: "#333" },
+  headerButton: { marginLeft: 16 },
   mapContainer: {
     height: Dimensions.get("window").height * 0.5,
     borderRadius: 12,
     overflow: "hidden",
     marginBottom: 16,
   },
-  map: {
-    ...LAYOUT.fill,
-  },
+  map: { ...LAYOUT.fill },
   mapPlaceholder: {
     flex: 1,
     backgroundColor: "#e9ecef",
     borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
   },
   mapPlaceholderText: {
     marginTop: 8,
@@ -720,10 +621,11 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#666",
   },
-  mapPlaceholderSubtext: {
-    color: "#888",
-    fontSize: 14,
-  },
+  mapPlaceholderSubtext: { color: "#888", fontSize: 14 },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loadingText: { marginTop: 12, fontSize: 16, color: "#666" },
+
+  // Legend styles
   legendContainer: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -741,54 +643,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 10,
   },
-  legendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  legendColor: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 6,
-  },
-  legendText: {
-    fontSize: 12,
-    color: "#666",
-  },
-  legendHelp: {
-    fontSize: 12,
-    color: "#3884ff",
-    fontStyle: "italic",
-  },
-  buttonContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  locationButton: {
-    backgroundColor: "#3884ff",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    flex: 0.48,
-  },
-  locationButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-    marginLeft: 8,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: "#666",
-  },
+  legendItem: { flexDirection: "row", alignItems: "center" },
+  legendColor: { width: 12, height: 12, borderRadius: 6, marginRight: 6 },
+  legendText: { fontSize: 12, color: "#666" },
+  legendHelp: { fontSize: 12, color: "#3884ff", fontStyle: "italic" },
+
+  // Route summary styles
   routeSummaryContainer: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -801,19 +661,23 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     color: "#333",
   },
-  routeDetails: {
-    marginBottom: 16,
-  },
-  routeDetail: {
+  routeDetails: { marginBottom: 16 },
+  routeDetail: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  routeDetailText: { fontSize: 14, marginLeft: 8 },
+
+  // Button styles
+  buttonContainer: { flexDirection: "row", justifyContent: "space-between" },
+  locationButton: {
+    backgroundColor: "#3884ff",
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 8,
+    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    flex: 0.48,
   },
-  routeDetailText: {
-    fontSize: 14,
-    marginLeft: 8,
-    color: "#444",
-  },
+  locationButtonText: { color: "#fff", fontWeight: "600", marginLeft: 8 },
   startNavigationButton: {
     backgroundColor: "#3884ff",
     flexDirection: "row",
@@ -822,62 +686,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
   },
-  startNavigationText: {
-    color: "#fff",
-    fontWeight: "600",
-    marginLeft: 8,
-  },
-  searchBar: {
-    position: "absolute",
-    top: SIZES?.lg || 16, // Add fallback values
-    left: SIZES?.lg || 16,
-    right: SIZES?.lg || 16,
-    height: SIZES?.buttonHeight || 48,
-    backgroundColor: COLORS.white,
-    borderRadius: SIZES?.borderRadius || 8,
-    paddingHorizontal: SIZES?.md || 12,
-    ...LAYOUT.row,
-    ...SHADOWS.medium,
-  },
-  searchInput: {
-    ...LAYOUT.fill,
-    height: "100%",
-    marginLeft: SIZES?.sm || 8,
-    color: COLORS.textDark,
-    ...(FONTS?.body1 || {}),
-  },
-  bottomSheet: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: COLORS.white,
-    borderTopLeftRadius: SIZES?.cardRadius || 12,
-    borderTopRightRadius: SIZES?.cardRadius || 12,
-    padding: SIZES?.lg || 16,
-    paddingBottom: (SIZES?.tabBarHeight || 64) + (SIZES?.lg || 16),
-    ...SHADOWS.large,
-  },
-  locationItem: {
-    ...LAYOUT.rowBetween,
-    paddingVertical: SIZES.md,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  locationName: {
-    ...FONTS.h4,
-    color: COLORS.textDark,
-  },
-  locationAddress: {
-    ...FONTS.body3,
-    color: COLORS.textLight,
-    marginTop: SIZES.xs,
-  },
-  locationDistance: {
-    ...FONTS.body2,
-    color: COLORS.primary,
-    fontWeight: "600",
-  },
+  startNavigationText: { color: "#fff", fontWeight: "600", marginLeft: 8 },
 });
 
 export default LocationScreen;

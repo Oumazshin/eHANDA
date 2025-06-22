@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useLayoutEffect } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-// Sample emergency hotlines
+// Sample emergency hotlines - using proper declaration to avoid text string issues
 const emergencyHotlines = [
   { id: "1", agency: "National Emergency Hotline", number: "911" },
   { id: "2", agency: "Philippine Red Cross", number: "143" },
@@ -20,7 +20,7 @@ const emergencyHotlines = [
   { id: "5", agency: "Bureau of Fire", number: "(02) 8426-0219" },
 ];
 
-// Sample personal contacts
+// Fix the personal contacts array declaration to avoid text string issues
 const personalContacts = [
   {
     id: "1",
@@ -36,14 +36,26 @@ const personalContacts = [
   },
 ];
 
-const ContactsScreen = ({ navigation }) => {
+const ContactsScreen = function (props) {
+  const navigation = props.navigation;
+
+  // Hide the default navigation header to avoid duplication
+  useLayoutEffect(() => {
+    if (navigation && navigation.setOptions) {
+      navigation.setOptions({
+        headerShown: false,
+      });
+    }
+  }, [navigation]);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
+        {/* Custom header - fixed by ensuring all text is inside Text components */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => navigation.goBack()}
+            onPress={() => navigation && navigation.goBack()}
           >
             <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>

@@ -18,22 +18,21 @@ import { Ionicons } from "@expo/vector-icons";
 // Import theme safely
 import { COLORS, FONTS, SHADOWS, LAYOUT } from "../styles/theme";
 
-// Safe sizes without potential undefined references
+// Safe sizes with optimized values for better visual hierarchy
 const { width } = Dimensions.get("window");
 const SIZES = {
   xs: 4,
   sm: 8,
-  md: 16,
-  lg: 24,
-  xl: 32,
-  xxl: 40,
-  screenPadding: 16,
-  screenHorizontalPadding: 16,
+  md: 14, // Reduced from 16 for tighter spacing
+  lg: 20, // Reduced from 24 for more compact layout
+  xl: 28, // Reduced from 32 for more compact sections
+  xxl: 36, // Reduced from 40 for better proportions
+  screenPadding: 16, // Reduced side padding for cleaner look
   tabBarHeight: 64,
-  borderRadius: 8,
-  cardRadius: 12,
+  borderRadius: 10, // Reduced for more minimal appearance
+  cardRadius: 14, // Reduced for more minimal look
   iconSize: 24,
-  avatarMedium: 44,
+  avatarMedium: 42, // Slightly smaller for cleaner proportions
   width,
 };
 
@@ -105,7 +104,7 @@ const QuickActionButton = memo(
           activeOpacity={0.8}
         >
           <View style={styles.quickActionIcon}>
-            <Ionicons name={icon} size={20} color="#FFFFFF" />
+            <Ionicons name={icon} size={18} color="#FFFFFF" />
 
             {badgeCount > 0 && (
               <View style={styles.badgeContainer}>
@@ -158,7 +157,7 @@ const NewsItem = memo(({ title, time, type, onPress }) => {
           { backgroundColor: typeStyles.color + "20" },
         ]}
       >
-        <Ionicons name={typeStyles.icon} size={20} color={typeStyles.color} />
+        <Ionicons name={typeStyles.icon} size={18} color={typeStyles.color} />
       </View>
       <View style={styles.newsContent}>
         <Text style={styles.newsTitle} numberOfLines={2}>
@@ -206,7 +205,7 @@ const WeatherCard = memo(() => (
         <View style={styles.weatherIconContainer}>
           <Ionicons
             name="partly-sunny"
-            size={68}
+            size={64}
             color={COLORS?.secondary || "#F59E0B"}
           />
         </View>
@@ -342,7 +341,7 @@ const HomeScreen = ({ navigation }) => {
   }, []);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: "#FCFCFC" }]}>
       <StatusBar
         barStyle="dark-content"
         backgroundColor={COLORS?.background || "#F9FAFB"}
@@ -477,43 +476,44 @@ const HomeScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  // Container styles
+  // Container styles - sleeker spacing
   safeArea: {
     flex: 1,
-    backgroundColor: COLORS?.background || "#F9FAFB",
+    backgroundColor: COLORS?.background || "#FCFCFC", // Lighter background for minimal look
   },
   container: {
     flex: 1,
   },
   contentContainer: {
     padding: SIZES.screenPadding,
-    paddingBottom: SIZES.tabBarHeight + SIZES.screenPadding,
+    paddingBottom: SIZES.tabBarHeight + SIZES.md, // Reduced bottom padding
   },
 
-  // Header section
+  // Header section - cleaner alignment
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: SIZES.lg,
-    paddingTop: SIZES.sm,
+    marginBottom: SIZES.lg, // Reduced for tighter layout
+    paddingTop: SIZES.sm, // Reduced top padding
   },
   welcomeText: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: COLORS?.textDark || "#111827",
+    fontSize: 20, // Reduced for cleaner look
+    fontWeight: "600", // Lighter weight for minimal aesthetic
+    color: COLORS?.textDark || "#222222",
+    marginBottom: 2, // Tighter spacing
   },
   dateText: {
-    fontSize: 14,
-    color: COLORS?.textLight || "#9CA3AF",
-    marginTop: SIZES.xs / 2,
+    fontSize: 14, // Reduced for cleaner look
+    color: COLORS?.textLight || "#777777",
+    marginTop: 1, // Tighter spacing
   },
   profileButton: {
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 }, // Reduced shadow
+    shadowOpacity: 0.08, // Lighter shadow for minimal look
+    shadowRadius: 2,
+    elevation: 1, // Reduced elevation
     borderRadius: SIZES.avatarMedium / 2,
   },
   avatar: {
@@ -522,286 +522,301 @@ const styles = StyleSheet.create({
     borderRadius: SIZES.avatarMedium / 2,
   },
 
-  // Section headers
+  // Section headers - cleaner spacing
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginVertical: SIZES.md,
+    marginVertical: SIZES.sm, // Tighter vertical margins
+    paddingVertical: 2, // Reduced padding for minimal look
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: COLORS?.textDark || "#111827",
-    marginVertical: SIZES.md,
+    fontSize: 18, // Reduced for cleaner aesthetic
+    fontWeight: "600", // Lighter weight for minimal look
+    color: COLORS?.textDark || "#222222",
+    marginVertical: SIZES.sm, // Tighter spacing
   },
   viewAllButton: {
     flexDirection: "row",
     alignItems: "center",
+    paddingVertical: 6, // Reduced for cleaner touch target
+    paddingHorizontal: 2,
   },
   viewAllText: {
-    fontSize: 14,
+    fontSize: 13, // Smaller for minimal look
     color: COLORS?.primary || "#2563EB",
-    marginRight: 2,
+    marginRight: 2, // Tighter spacing
+    fontWeight: "500",
   },
 
-  // Quick actions
+  // Quick actions - cleaner layout
   quickActionsContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: SIZES.lg,
-    marginHorizontal: -SIZES.xs, // Negative margin to offset padding
+    marginBottom: SIZES.lg, // Reduced for tighter layout
+    marginHorizontal: -SIZES.xs / 2, // Tighter negative margin
   },
   quickActionItem: {
     flex: 1,
-    marginHorizontal: SIZES.xs,
-    aspectRatio: 1,
+    marginHorizontal: SIZES.xs / 2, // Tighter horizontal spacing
+    aspectRatio: 0.95, // Slightly squarer for cleaner look
     borderRadius: SIZES.cardRadius,
-    maxWidth: (SIZES.width - SIZES.screenPadding * 2) / 3 - SIZES.sm,
+    maxWidth: (SIZES.width - SIZES.screenPadding * 2) / 3 - SIZES.sm / 2, // Adjusted for tighter spacing
   },
   quickActionButton: {
     width: "100%",
     height: "100%",
     borderRadius: SIZES.cardRadius,
-    padding: SIZES.sm,
-    justifyContent: "center",
+    padding: SIZES.xs, // Reduced internal padding for cleaner look
+    justifyContent: "space-between",
     alignItems: "center",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
-    overflow: "hidden", // Prevent badge from getting cut off
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1, // Reduced shadow opacity for minimal look
+    shadowRadius: 3,
+    elevation: 3, // Reduced elevation
+    overflow: "hidden",
+    paddingVertical: SIZES.sm, // Tighter padding
   },
   quickActionIcon: {
-    width: SIZES.iconSize * 1.8, // Slightly smaller for better proportions
-    height: SIZES.iconSize * 1.8,
+    width: SIZES.iconSize * 1.7, // Slightly smaller for minimal look
+    height: SIZES.iconSize * 1.7,
     borderRadius: SIZES.iconSize,
-    backgroundColor: "rgba(255,255,255,0.2)",
+    backgroundColor: "rgba(255,255,255,0.15)", // More subtle background
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: SIZES.sm,
-    position: "relative", // Ensure badge positioning works
+    marginBottom: SIZES.sm, // Tighter spacing
+    position: "relative",
   },
   quickActionTitle: {
-    fontSize: 11, // Slightly smaller for better fit
-    lineHeight: 13,
+    fontSize: 11, // Smaller text for minimal look
+    lineHeight: 14, // Adjusted line height
     color: "#FFFFFF",
-    fontWeight: "600",
+    fontWeight: "500", // Slightly lighter weight
     textAlign: "center",
-    marginTop: SIZES.xs,
+    marginTop: SIZES.xs / 2, // Tighter top margin
   },
 
-  // Weather card
+  // Weather card - sleeker internal spacing
   weatherCard: {
-    padding: SIZES.lg,
-    marginBottom: SIZES.lg,
+    padding: SIZES.lg, // Reduced padding for cleaner look
+    marginBottom: SIZES.lg, // Reduced margin for tighter layout
   },
   weatherTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: COLORS?.textDark || "#111827",
+    fontSize: 16, // Smaller for minimal aesthetic
+    fontWeight: "600", // Lighter weight
+    color: COLORS?.textDark || "#222222",
   },
   weatherTemp: {
-    fontSize: 32,
-    fontWeight: "bold",
-    marginBottom: SIZES.xs / 2,
-    color: COLORS?.textDark || "#111827",
+    fontSize: 34, // Slightly smaller for cleaner proportion
+    fontWeight: "600", // Lighter weight for minimal look
+    marginBottom: 0, // Tighter spacing
+    color: COLORS?.textDark || "#222222",
   },
   weatherDesc: {
-    fontSize: 16,
-    color: COLORS?.textDark || "#111827",
+    fontSize: 14, // Smaller for minimal look
+    color: COLORS?.textDark || "#222222",
+    marginBottom: 2, // Tighter spacing
   },
   weatherLocation: {
-    fontSize: 14,
-    color: COLORS?.textLight || "#9CA3AF",
-    marginLeft: 4,
+    fontSize: 13, // Smaller for minimal look
+    color: COLORS?.textLight || "#777777",
+    marginLeft: 2, // Tighter spacing
   },
   weatherIconContainer: {
     justifyContent: "center",
     alignItems: "center",
+    paddingRight: 0, // Removed unnecessary padding
   },
   weatherDetails: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: SIZES.lg,
-    paddingTop: SIZES.md,
+    marginTop: SIZES.md, // Reduced top margin
+    paddingTop: SIZES.sm, // Reduced top padding
     borderTopWidth: 1,
-    borderTopColor: COLORS?.border || "#E5E7EB",
+    borderTopColor: COLORS?.border || "#EEEEEE", // Lighter border for minimal look
   },
   weatherDetailItem: {
     alignItems: "center",
     flex: 1,
+    paddingVertical: SIZES.xs / 2, // Tighter padding
   },
   weatherDetailValue: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: COLORS?.textDark || "#111827",
-    marginTop: 4,
+    fontSize: 14, // Smaller for minimal look
+    fontWeight: "600", // Lighter weight
+    color: COLORS?.textDark || "#222222",
+    marginTop: 4, // Tighter spacing
   },
   weatherDetailLabel: {
-    fontSize: 12,
-    color: COLORS?.textLight || "#9CA3AF",
+    fontSize: 11, // Smaller for minimal look
+    color: COLORS?.textLight || "#777777",
+    marginTop: 1, // Tighter spacing
   },
   moreButton: {
     flexDirection: "row",
     alignItems: "center",
+    paddingVertical: 4, // Reduced padding for cleaner touch target
+    paddingHorizontal: 2,
   },
   moreText: {
-    fontSize: 14,
+    fontSize: 13, // Smaller for minimal look
     color: COLORS?.primary || "#2563EB",
-    marginRight: 2,
+    marginRight: 2, // Tighter spacing
+    fontWeight: "500",
   },
 
-  // Alert card
+  // Alert card - sleeker internal spacing
   alertCard: {
-    padding: SIZES.lg,
-    marginBottom: SIZES.lg,
+    padding: SIZES.lg, // Reduced padding for cleaner look
+    marginBottom: SIZES.lg, // Reduced for tighter layout
   },
   alertHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: SIZES.sm,
+    marginBottom: SIZES.sm, // Reduced for tighter spacing
   },
   alertIconContainer: {
-    width: 32,
+    width: 32, // Slightly smaller for minimal look
     height: 32,
     borderRadius: 16,
     backgroundColor: COLORS?.warning || "#F59E0B",
     justifyContent: "center",
     alignItems: "center",
-    marginRight: SIZES.sm,
+    marginRight: SIZES.sm, // Tighter spacing
   },
   alertHeaderText: {
-    fontSize: 12,
-    fontWeight: "bold",
+    fontSize: 12, // Smaller for minimal look
+    fontWeight: "600", // Lighter weight
     color: COLORS?.warning || "#F59E0B",
-    letterSpacing: 1,
+    letterSpacing: 0.8, // Slightly reduced letter spacing for cleaner look
   },
   alertTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: COLORS?.textDark || "#111827",
-    marginBottom: SIZES.xs,
+    fontSize: 18, // Smaller for cleaner proportion
+    fontWeight: "600", // Lighter weight for minimal look
+    color: COLORS?.textDark || "#222222",
+    marginBottom: SIZES.xs, // Tighter spacing
   },
   alertDesc: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: COLORS?.textLight || "#9CA3AF",
-    marginBottom: SIZES.md,
+    fontSize: 14, // Smaller for minimal look
+    lineHeight: 20, // Reduced line height for cleaner look
+    color: COLORS?.textLight || "#555555", // Slightly darker for better readability
+    marginBottom: SIZES.sm, // Tighter spacing
   },
   alertActions: {
-    marginTop: SIZES.sm,
+    marginTop: SIZES.sm, // Reduced top margin
   },
   alertAction: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: SIZES.sm,
+    paddingVertical: SIZES.sm, // Tighter padding
     borderBottomWidth: 1,
-    borderBottomColor: COLORS?.border || "#E5E7EB",
+    borderBottomColor: COLORS?.border || "#EEEEEE", // Lighter border
   },
   alertActionText: {
-    fontSize: 14,
+    fontSize: 14, // Smaller for minimal look
     color: COLORS?.primary || "#2563EB",
+    fontWeight: "500",
   },
 
-  // News items
+  // News items - sleeker spacing and sizing
   newsItem: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS?.white || "#FFFFFF",
-    padding: SIZES.md,
+    padding: SIZES.sm, // Reduced padding for cleaner look
     borderRadius: SIZES.borderRadius,
-    marginBottom: SIZES.md,
+    marginBottom: SIZES.sm, // Tighter bottom margin
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 }, // Reduced shadow
+    shadowOpacity: 0.07, // Lighter shadow for minimal look
+    shadowRadius: 2,
+    elevation: 1, // Reduced elevation
   },
   newsIconContainer: {
-    width: 40,
+    width: 40, // Slightly smaller for minimal look
     height: 40,
     borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: SIZES.md,
+    marginRight: SIZES.sm, // Tighter spacing
   },
   newsContent: {
     flex: 1,
-    marginRight: SIZES.sm,
+    marginRight: SIZES.xs, // Tighter spacing
+    paddingVertical: 1, // Reduced padding
   },
   newsTitle: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: COLORS?.textDark || "#111827",
-    marginBottom: 4,
+    fontSize: 14, // Smaller for minimal look
+    fontWeight: "500", // Lighter weight
+    color: COLORS?.textDark || "#222222",
+    marginBottom: 4, // Tighter spacing
   },
   newsTime: {
-    fontSize: 12,
-    color: COLORS?.textLight || "#9CA3AF",
+    fontSize: 12, // Smaller for minimal look
+    color: COLORS?.textLight || "#777777",
   },
   divider: {
     height: 1,
-    backgroundColor: COLORS?.border || "#E5E7EB",
-    marginVertical: SIZES.xs,
+    backgroundColor: COLORS?.border || "#EEEEEE", // Lighter border
+    marginVertical: SIZES.xs, // Tighter spacing
   },
 
-  // Tip card
+  // Tip card - sleeker internal spacing
   tipCard: {
-    padding: SIZES.lg,
-    marginTop: SIZES.md,
-    marginBottom: SIZES.xl,
-    backgroundColor: COLORS?.primary + "08" || "#2563EB08",
+    padding: SIZES.lg, // Reduced padding for cleaner look
+    marginTop: SIZES.md, // Reduced top margin
+    marginBottom: SIZES.xl, // Reduced bottom margin
+    backgroundColor: COLORS?.primary + "06" || "#2563EB06", // Lighter background for minimal look
   },
   tipHeaderText: {
-    fontSize: 12,
-    fontWeight: "bold",
+    fontSize: 12, // Smaller for minimal look
+    fontWeight: "600", // Lighter weight
     color: COLORS?.primary || "#2563EB",
-    marginLeft: SIZES.xs,
-    letterSpacing: 1,
+    marginLeft: SIZES.xs, // Tighter spacing
+    letterSpacing: 0.8, // Slightly reduced letter spacing
   },
   tipDesc: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: COLORS?.textDark || "#111827",
-    marginTop: SIZES.md,
-    marginBottom: SIZES.md,
+    fontSize: 14, // Smaller for minimal look
+    lineHeight: 20, // Reduced line height for cleaner look
+    color: COLORS?.textDark || "#222222",
+    marginTop: SIZES.sm, // Tighter spacing
+    marginBottom: SIZES.sm, // Tighter spacing
   },
   tipAction: {
     flexDirection: "row",
     alignItems: "center",
+    paddingVertical: 4, // Reduced padding for cleaner touch target
   },
   tipActionText: {
-    fontSize: 14,
+    fontSize: 14, // Smaller for minimal look
     color: COLORS?.primary || "#2563EB",
-    marginRight: 4,
-    fontWeight: "500",
+    marginRight: 4, // Tighter spacing
+    fontWeight: "500", // Lighter weight for minimal look
   },
 
-  // Badge
+  // Badge - sleeker minimal look
   badgeContainer: {
     position: "absolute",
-    top: -4,
+    top: -4, // Adjusted positioning
     right: -4,
-    backgroundColor: "#EF4444", // Hardcoded color for reliability
-    minWidth: 18,
+    backgroundColor: "#EF4444",
+    minWidth: 18, // Smaller for minimal look
     height: 18,
     borderRadius: 9,
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 1.5,
+    borderWidth: 1.5, // Thinner border for minimal look
     borderColor: "#FFFFFF",
-    zIndex: 1, // Ensure badge appears on top
+    zIndex: 1,
   },
   badgeText: {
     color: "#FFFFFF",
-    fontSize: 9,
-    fontWeight: "700",
+    fontSize: 9, // Smaller for minimal look
+    fontWeight: "600", // Slightly lighter weight
     textAlign: "center",
-    paddingHorizontal: 2,
+    paddingHorizontal: 2, // Tighter padding
   },
 });
 

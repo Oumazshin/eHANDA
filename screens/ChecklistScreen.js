@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useLayoutEffect } from "react";
 import {
   View,
   Text,
@@ -36,6 +36,7 @@ const initialFamilyItems = [
   { id: "5", text: "Practice evacuation plan", completed: false },
 ];
 
+// Define the ChecklistItem component properly
 const ChecklistItem = ({ item, toggleItem }) => {
   return (
     <TouchableOpacity
@@ -57,13 +58,45 @@ const ChecklistItem = ({ item, toggleItem }) => {
   );
 };
 
-const ChecklistScreen = ({ navigation }) => {
+// Fix the parameters and function definition
+const ChecklistScreen = function (props) {
+  // Get navigation prop safely
+  const navigation = props.navigation;
+
+  // Hide the default navigation header to avoid duplication
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerShown: false,
+    });
+  }, [navigation]);
+
   const [activeTab, setActiveTab] = useState("home");
   const [homeItems, setHomeItems] = useState(initialHomeItems);
   const [emergencyItems, setEmergencyItems] = useState(initialEmergencyItems);
   const [familyItems, setFamilyItems] = useState(initialFamilyItems);
 
-  // Toggle item completion
+  // Calculate progress
+  const homeProgress =
+    homeItems.filter((item) => item.completed).length / homeItems.length;
+  const emergencyProgress =
+    emergencyItems.filter((item) => item.completed).length /
+    emergencyItems.length;
+  const familyProgress =
+    familyItems.filter((item) => item.completed).length / familyItems.length;
+
+  const getActiveItems = () => {
+    if (activeTab === "home") return homeItems;
+    if (activeTab === "emergency") return emergencyItems;
+    return familyItems;
+  };
+
+  const toggleActiveItem = (id) => {
+    if (activeTab === "home") return toggleHomeItem(id);
+    if (activeTab === "emergency") return toggleEmergencyItem(id);
+    return toggleFamilyItem(id);
+  };
+
+  // Toggle item completion functions
   const toggleHomeItem = (id) => {
     setHomeItems(
       homeItems.map((item) =>
@@ -88,18 +121,10 @@ const ChecklistScreen = ({ navigation }) => {
     );
   };
 
-  // Calculate progress
-  const homeProgress =
-    homeItems.filter((item) => item.completed).length / homeItems.length;
-  const emergencyProgress =
-    emergencyItems.filter((item) => item.completed).length /
-    emergencyItems.length;
-  const familyProgress =
-    familyItems.filter((item) => item.completed).length / familyItems.length;
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
+        {/* Custom header */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
@@ -199,37 +224,15 @@ const ChecklistScreen = ({ navigation }) => {
           </Text>
         </View>
 
-        <ScrollView style={styles.checklistContainer}>
-          {activeTab === "home" && (
-            <FlatList
-              data={homeItems}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <ChecklistItem item={item} toggleItem={toggleHomeItem} />
-              )}
-            />
+        {/* Simplify the conditional rendering with a helper function */}
+        <FlatList
+          style={styles.checklistContainer}
+          data={getActiveItems()}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <ChecklistItem item={item} toggleItem={toggleActiveItem} />
           )}
-
-          {activeTab === "emergency" && (
-            <FlatList
-              data={emergencyItems}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <ChecklistItem item={item} toggleItem={toggleEmergencyItem} />
-              )}
-            />
-          )}
-
-          {activeTab === "family" && (
-            <FlatList
-              data={familyItems}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <ChecklistItem item={item} toggleItem={toggleFamilyItem} />
-              )}
-            />
-          )}
-        </ScrollView>
+        />
 
         <TouchableOpacity style={styles.addButton}>
           <Ionicons name="add" size={24} color="#fff" />
