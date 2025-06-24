@@ -24,16 +24,17 @@ import EditProfileScreen from "./screens/EditProfileScreen";
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-// Constant styles and configurations that don't rely on theme
+// Updated color palette
 const BASE_COLORS = {
-  primary: "#2563EB",
-  background: "#F9FAFB",
-  white: "#FFFFFF",
-  textDark: "#111827",
-  textLight: "#9CA3AF",
-  border: "#E5E7EB",
-  divider: "#F3F4F6",
-  secondary: "#F59E0B",
+  primary: "#2C365A", // Deep Ocean - main accent color
+  secondary: "#C4BCB0", // Beige - secondary accent
+  background: "#EEE8DF", // Cream - background color
+  white: "#FFFFFF", // Pure white - for contrast elements
+  textDark: "#1F2937", // Dark text - slightly softened from pure black
+  textLight: "#A9A195", // Lighter text - derived from beige
+  border: "#D8D3C9", // Lighter cream - subtle borders
+  divider: "#F2EDE7", // Very light cream - subtle dividers
+  error: "#9A3F41", // Muted red - for errors and warnings
 };
 
 // Tab configuration
@@ -54,17 +55,17 @@ const TAB_ICONS = {
 
 // Refined shadow style for minimalist look
 const BASE_SHADOW = {
-  shadowColor: "#000",
-  shadowOffset: { width: 0, height: -1 }, // More subtle shadow direction
-  shadowOpacity: 0.04, // Reduced opacity for minimalist feel
+  shadowColor: "#2C365A", // Using primary color for shadow
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.08, // Subtle shadow
   shadowRadius: 4,
   elevation: 4,
 };
 
 // Optimized tab bar height
-const TAB_BAR_HEIGHT = 85; // Increased from 80 to 88 for more space
+const TAB_BAR_HEIGHT = 85;
 
-// Custom TabIcon component with animations - increased vertical padding
+// Custom TabIcon component with animations
 function TabIcon({ focused, iconName, color }) {
   // Create animations for scale and opacity
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
@@ -92,8 +93,8 @@ function TabIcon({ focused, iconName, color }) {
       style={{
         alignItems: "center",
         justifyContent: "center",
-        height: 46, // Increased from 42 to 46
-        paddingBottom: 4, // Added bottom padding
+        height: 46,
+        paddingBottom: 4,
         transform: [{ scale: scaleAnim }],
         opacity: opacityAnim,
       }}
@@ -128,40 +129,40 @@ function MainTabs() {
         tabBarStyle: {
           height: TAB_BAR_HEIGHT,
           paddingTop: 1,
-          paddingBottom: 42, // Increased from 38 to 42 for more space at bottom
+          paddingBottom: 42,
           backgroundColor: BASE_COLORS.white,
-          borderTopColor: "transparent", // Hide border for cleaner look
+          borderTopColor: "transparent",
           ...BASE_SHADOW,
           position: "absolute",
           left: 0,
           right: 0,
           bottom: 0,
-          borderTopLeftRadius: 24, // Slightly larger radius for modern feel
+          borderTopLeftRadius: 24,
           borderTopRightRadius: 24,
           overflow: "hidden",
         },
         // Clean, minimal label style
         tabBarLabelStyle: {
-          fontWeight: "500", // Slightly lighter for minimalist look
-          fontSize: 11, // Smaller for cleaner appearance
+          fontWeight: "500",
+          fontSize: 11,
           marginTop: 1,
-          marginBottom: 10, // Increased from 8 to 10
-          letterSpacing: 0.2, // Subtle letter spacing for modern typography
+          marginBottom: 10,
+          letterSpacing: 0.2,
         },
         tabBarItemStyle: {
-          height: 54, // Increased from 50 to 54
-          paddingVertical: 6, // Increased from 4 to 6
-          paddingBottom: 8, // Added explicit bottom padding
+          height: 54,
+          paddingVertical: 6,
+          paddingBottom: 8,
           justifyContent: "center",
         },
         // Smooth spring animation for tab transitions
         tabBarAnimation: {
           type: "spring",
           config: {
-            stiffness: 800, // Slightly reduced for smoother feel
+            stiffness: 800,
             damping: 50,
-            mass: 1.5, // Reduced mass for lighter feel
-            overshootClamping: false, // Allow slight overshoot for natural feel
+            mass: 1.5,
+            overshootClamping: false,
             restDisplacementThreshold: 0.01,
             restSpeedThreshold: 0.01,
           },
@@ -183,9 +184,9 @@ function MainTabs() {
       />
       <Tab.Screen
         name="Location"
-        component={LocationScreen}
+        component={LocationScreenWrapper} // Use the wrapper instead
         options={{
-          title: "Routes", // Shortened for minimalist look
+          title: "Routes",
           tabBarAccessibilityLabel: "Find safe evacuation routes",
         }}
       />
@@ -203,12 +204,19 @@ function MainTabs() {
 
 // Loading component
 const Loading = () => (
-  <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-    <Text>Loading...</Text>
+  <View
+    style={{
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: BASE_COLORS.background,
+    }}
+  >
+    <Text style={{ color: BASE_COLORS.primary }}>Loading...</Text>
   </View>
 );
 
-// Define a safe navigation theme that doesn't use custom fonts
+// Define a safe navigation theme with updated colors
 const SAFE_THEME = {
   ...DefaultTheme,
   colors: {
@@ -218,17 +226,16 @@ const SAFE_THEME = {
     card: BASE_COLORS.white,
     text: BASE_COLORS.textDark,
     border: BASE_COLORS.border,
-    notification: BASE_COLORS.secondary,
+    notification: BASE_COLORS.error,
   },
 };
 
-// Main App component - renamed to AppContainer
+// Main App component
 function AppContainer() {
-  // Skip any state or effects for now to troubleshoot the font issue
   return (
     <SafeAreaProvider>
       <NavigationContainer theme={SAFE_THEME}>
-        <StatusBar style="auto" />
+        <StatusBar style="dark" />
         <Stack.Navigator
           initialRouteName="Welcome"
           screenOptions={{
@@ -243,7 +250,6 @@ function AppContainer() {
               fontSize: 18,
               fontWeight: "600",
               color: BASE_COLORS.textDark,
-              // DO NOT add fontFamily here
             },
             headerTintColor: BASE_COLORS.primary,
             headerBackTitleVisible: false,
@@ -303,6 +309,31 @@ function AppContainer() {
     </SafeAreaProvider>
   );
 }
+
+// In your App.js file:
+
+// 1. Create a wrapper component in case there's an issue with the original
+const LocationScreenWrapper = (props) => {
+  try {
+    // Safely render the component, with error catching
+    return <LocationScreen {...props} />;
+  } catch (error) {
+    // Fallback UI if there's an error
+    console.error("Error rendering LocationScreen:", error);
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text>There was an error loading this screen.</Text>
+        <Text style={{ color: "red" }}>{error.message}</Text>
+      </View>
+    );
+  }
+};
 
 // Main App wrapper with error boundary
 export default function App() {

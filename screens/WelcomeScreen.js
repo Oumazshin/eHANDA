@@ -10,12 +10,10 @@ import {
   Animated,
   StatusBar,
 } from "react-native";
-// Use the safe platform utils
 import { getPlatformValue } from "../utils/platformUtils";
 import AppButton from "../components/AppButton";
 import { COLORS, SIZES, FONTS, LAYOUT } from "../styles/theme";
 import { Ionicons } from "@expo/vector-icons";
-// Import safe layout helpers
 import { SafeLayout } from "../utils/layoutHelpers";
 
 // Define LAYOUT for use in this component
@@ -99,17 +97,18 @@ const WelcomeScreen = ({ navigation }) => {
     return () => clearTimeout(timer);
   }, []);
 
-  // Splash Screen UI
+  // Splash Screen UI - simplified without background patterns
   if (showSplash) {
     return (
       <Animated.View style={[styles.splashContainer, { opacity: fadeAnim }]}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+        <StatusBar barStyle="light-content" backgroundColor="#2C365A" />
+
         <Image
           source={require("../assets/EHandaLogo.png")}
           style={styles.splashLogo}
           resizeMode="contain"
         />
-        <Text style={styles.splashTitle}>eHANDA</Text>
+
         <Text style={styles.splashSubtitle}>
           Evacuation & Hazard Navigation Digital Assistant
         </Text>
@@ -118,10 +117,7 @@ const WelcomeScreen = ({ navigation }) => {
           <Animated.View
             style={[
               styles.loadingBar,
-              {
-                transform: [{ scaleX: progressAnim }],
-                transformOrigin: "left",
-              },
+              { transform: [{ scaleX: progressAnim }] },
             ]}
           />
         </View>
@@ -140,19 +136,17 @@ const WelcomeScreen = ({ navigation }) => {
     outputRange: [30, 0],
   });
 
-  // Main Welcome Screen UI
+  // Main Welcome Screen UI - simplified without background elements
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+
       <View style={styles.content}>
         {/* Logo Section */}
         <Animated.View
           style={[
             styles.logoSection,
-            {
-              transform: [{ translateY: logoTranslateY }],
-              opacity: slideAnim,
-            },
+            { transform: [{ translateY: logoTranslateY }], opacity: slideAnim },
           ]}
         >
           <Image
@@ -160,17 +154,13 @@ const WelcomeScreen = ({ navigation }) => {
             style={styles.logo}
             resizeMode="contain"
           />
-          <Text style={styles.title}>eHANDA</Text>
         </Animated.View>
 
         {/* Text Section */}
         <Animated.View
           style={[
             styles.textSection,
-            {
-              transform: [{ translateY: textTranslateY }],
-              opacity: slideAnim,
-            },
+            { transform: [{ translateY: textTranslateY }], opacity: slideAnim },
           ]}
         >
           <Text style={styles.subtitle}>
@@ -219,34 +209,29 @@ const WelcomeScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  // Splash screen styles
+  // Splash screen styles - simplified
   splashContainer: {
     ...LAYOUT.fill,
     ...LAYOUT.center,
-    backgroundColor: COLORS.primary,
+    backgroundColor: "#2C365A", // Deep Ocean primary
+    position: "relative",
   },
   splashLogo: {
-    width: width * 0.4,
-    height: width * 0.4,
-    marginBottom: lg,
-  },
-  splashTitle: {
-    fontSize: 36, // Intentionally larger than standard
-    color: COLORS.white,
-    marginBottom: xs,
-    fontWeight: "800",
+    width: width * 0.65,
+    height: width * 0.65,
+    marginBottom: md,
   },
   splashSubtitle: {
-    fontSize: 14, // Direct value instead of FONTS.body2
+    fontSize: 16,
     color: COLORS.white,
     textAlign: "center",
-    paddingHorizontal: screenHorizontalPadding * 2,
+    paddingHorizontal: screenHorizontalPadding * 1.5,
     opacity: 0.9,
   },
   loadingIndicator: {
     position: "absolute",
-    bottom: xxl + lg,
-    width: width * 0.7,
+    bottom: xxl,
+    width: width * 0.75,
     height: 4,
     backgroundColor: "rgba(255,255,255,0.3)",
     borderRadius: 2,
@@ -257,66 +242,70 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
   },
 
-  // Welcome screen styles
+  // Welcome screen styles - simplified
   container: {
     ...LAYOUT.fill,
-    backgroundColor: COLORS?.white || "#FFFFFF",
+    backgroundColor: "#EEE8DF", // Cream background
   },
   content: {
     ...LAYOUT.fill,
     ...LAYOUT.center,
     paddingHorizontal: screenHorizontalPadding,
+    paddingTop: height * 0.02,
   },
   logoSection: {
     ...LAYOUT.columnCenter,
     marginBottom: xl,
+    flex: 0.4,
   },
   textSection: {
     ...LAYOUT.columnCenter,
-    marginBottom: xxl,
+    marginBottom: xl,
+    flex: 0.25,
   },
   logo: {
-    width: width * 0.35,
-    height: width * 0.35,
-    marginBottom: md,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 10,
+    width: width * 0.6,
+    height: width * 0.6,
+    marginBottom: 0,
   },
   subtitle: {
     fontSize: FONTS?.h3?.fontSize || 20,
     fontWeight: FONTS?.h3?.fontWeight || "bold",
-    color: COLORS.textDark,
+    color: "#2C365A",
     textAlign: "center",
-    marginBottom: lg,
-    lineHeight: 30,
+    marginBottom: md,
+    lineHeight: 28,
   },
   description: {
     fontSize: FONTS?.body1?.fontSize || 16,
-    color: COLORS.textMedium,
+    color: "#5D6173",
     textAlign: "center",
-    marginBottom: xl,
-    lineHeight: 24,
+    marginBottom: md,
+    lineHeight: 22,
   },
   buttonContainer: {
     width: "100%",
-    marginTop: lg,
+    marginTop: md,
+    flex: 0.35,
   },
   button: {
-    marginBottom: md,
+    marginBottom: sm,
     height: buttonHeight,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   guestButton: {
-    paddingVertical: md,
+    paddingVertical: sm,
     ...LAYOUT.rowCenter,
+    marginTop: xs,
   },
   guestButtonText: {
     fontSize: FONTS?.body2?.fontSize || 14,
     fontWeight: "600",
-    color: COLORS.primary,
+    color: "#2C365A",
     marginRight: xs / 2,
   },
 });
