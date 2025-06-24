@@ -11,48 +11,67 @@ import {
   Animated,
   Dimensions,
   TouchableWithoutFeedback,
-  StatusBar,
   Keyboard,
   Vibration,
   TextInput,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { SHADOWS } from "../styles/theme";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
-import * as Haptics from "expo-haptics"; // Consider adding haptic feedback
+import * as Haptics from 'expo-haptics';
+import { StatusBar } from 'expo-status-bar';
+
+import * as Location from 'expo-location';
+import { supabase, supabaseAnonKey } from '../utils/supabaseClient'; // Now importing both
+import MapView, { Marker, Polyline } from 'react-native-maps'; // For map display
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
-const FOOTER_HEIGHT = 60; // Bottom tab height
-const PULL_THRESHOLD = 50; // Pull distance to trigger dropdown collapse
+const FOOTER_HEIGHT = 60;
+const PULL_THRESHOLD = 50;
+
+// Default region for map if current location isn't available yet
+const DEFAULT_MAP_REGION = {
+  latitude: 14.83, // Approx center of Sta. Monica, Hagonoy, Bulacan
+  longitude: 120.76,
+  latitudeDelta: 0.05,
+  longitudeDelta: 0.05,
+};
+
+// Nominatim API Base URL
+const NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org/search?format=json&limit=1';
+
 
 const LocationScreen = ({ navigation = {} }) => {
-  // Core UI state
   const [dropdownExpanded, setDropdownExpanded] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const [startLocation, setStartLocation] = useState("");
   const [destinationLocation, setDestinationLocation] = useState("");
   const [transportMode, setTransportMode] = useState("car");
   const [recentSearches, setRecentSearches] = useState([
-    "Home",
-    "Work",
-    "City Center",
-    "Airport",
+    "Home", "Work", "City Center", "Airport",
   ]);
 
-  // Animation values
+  const [currentLocation, setCurrentLocation] = useState(null); // Will be set when "Home" is chosen
+  const [matchedStartLocationCoords, setMatchedStartLocationCoords] = useState(null); // For matched names from DB or Nominatim
+  const [allSupabaseLocations, setAllSupabaseLocations] = useState([]);
+  const [evacuationCenters, setEvacuationCenters] = useState([]);
+  const [selectedEvacCenterId, setSelectedEvacCenterId] = useState(null);
+  const [route, setRoute] = useState(null);
+  const [totalDistance, setTotalDistance] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
   const dropdownAnimation = useRef(new Animated.Value(0)).current;
   const backgroundBlurAnimation = useRef(new Animated.Value(0)).current;
   const searchBarExpansion = useRef(new Animated.Value(0)).current;
   const scrollY = useRef(new Animated.Value(0)).current;
   const panResponderY = useRef(new Animated.Value(0)).current;
 
-  // Refs
   const scrollViewRef = useRef(null);
   const startLocationInputRef = useRef(null);
   const destinationInputRef = useRef(null);
 
-  // Handle keyboard appearance - collapse dropdown if keyboard opens when searching
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
       "keyboardDidShow",
@@ -69,91 +88,280 @@ const LocationScreen = ({ navigation = {} }) => {
 
     return () => {
       keyboardDidHideListener.remove();
-      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
     };
   }, []);
 
-  // Animation control with improved timing and easing
   useEffect(() => {
     if (dropdownExpanded) {
-      // Provide haptic feedback when opening dropdown
       if (Platform.OS === "ios") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       } else {
         Vibration.vibrate(10);
       }
-
       Animated.parallel([
-        Animated.timing(dropdownAnimation, {
-          toValue: 1,
-          duration: 350,
-          useNativeDriver: true,
-        }),
-        Animated.timing(backgroundBlurAnimation, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: false,
-        }),
-      ]).start();
+        Animated.timing(dropdownAnimation, { toValue: 1, duration: 350, useNativeDriver: true, }).start(),
+        Animated.timing(backgroundBlurAnimation, { toValue: 1, duration: 300, useNativeDriver: Platform.OS !== "web", }).start(),
+      ]);
     } else {
       Animated.parallel([
-        Animated.timing(backgroundBlurAnimation, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: false,
-        }),
-        Animated.timing(dropdownAnimation, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
+        Animated.timing(backgroundBlurAnimation, { toValue: 0, duration: 200, useNativeDriver: Platform.OS !== "web", }).start(),
+        Animated.timing(dropdownAnimation, { toValue: 0, duration: 300, useNativeDriver: true, }).start(),
+      ]);
     }
   }, [dropdownExpanded]);
 
-  // Enhanced dropdown behavior with scroll interactivity
+  // Initial fetch of locations (evacuation centers and road nodes) from Supabase on component mount
+  useEffect(() => {
+    console.log("1. useEffect for initial data fetch triggered.");
+    (async () => {
+      try {
+        console.log("2. Calling fetchAllLocations (without direct location permissions yet)...");
+        await fetchAllLocations();
+        console.log("3. fetchAllLocations call completed within initial useEffect.");
+      } catch (mainEffectError) {
+        console.error("4. Unhandled error in initial useEffect async block:", mainEffectError);
+        setError(`An unexpected error occurred during initial setup: ${mainEffectError.message}`);
+      }
+    })();
+  }, []);
+
+  const requestAndSetCurrentLocation = async () => {
+    console.log("Requesting foreground location permissions for 'Home' location...");
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      console.log("Location permission status received:", status);
+
+      if (status !== 'granted') {
+        setError('Permission to access location was denied. Please enable it in settings to use "Home" location.');
+        Alert.alert('Location Permission Denied', 'Please grant location permission to use "Home" as your starting point.');
+        console.warn("Location permission denied. Cannot set 'Home' as current location.");
+        return false; // Indicate failure
+      }
+      console.log("Location permission granted. Attempting to get current position...");
+
+      let newLocation = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      setCurrentLocation(newLocation.coords);
+      console.log("Current location obtained:", newLocation.coords);
+      setMatchedStartLocationCoords(null); // Clear any matched manual start if "Home" is chosen
+      return true; // Indicate success
+    } catch (locationError) {
+      console.error("Error getting current position for 'Home' location:", locationError);
+      setError(`Failed to get current location for "Home": ${locationError.message}`);
+      Alert.alert('Location Error', `Failed to get current location for "Home": ${locationError.message}`);
+      setCurrentLocation(null); // Ensure current location is cleared on failure
+      setMatchedStartLocationCoords(null); // Clear any matched manual start on failure
+      return false; // Indicate failure
+    }
+  };
+
+
+  const fetchAllLocations = async () => {
+    setLoading(true);
+    setError(null);
+    console.log("--- fetchAllLocations started (Log from inside the function) ---");
+    try {
+      const { data, error } = await supabase
+        .from('location') // Corrected to 'location' (singular) as per your table name
+        .select('id, name, latitude, longitude, type, osm_id');
+
+      if (error) {
+        console.error("Supabase fetch error (from fetchAllLocations):", error);
+        throw new Error(error.message);
+      }
+
+      console.log('Raw data fetched from Supabase:', data); // NEW LOG
+      
+      // NEW: Log each location's ID, Name, and Type for inspection
+      if (data && data.length > 0) {
+        data.forEach(loc => {
+            console.log(`Location: ID=${loc.id}, Name="${loc.name}", Type="${loc.type}"`);
+        });
+      }
+
+      setAllSupabaseLocations(data || []);
+      // Robust filtering for evacuation centers: lowercase and trim
+      const filteredEvacCenters = (data || []).filter(loc => 
+        loc.type && typeof loc.type === 'string' && loc.type.toLowerCase().trim() === 'evacuation_center'
+      );
+      setEvacuationCenters(filteredEvacCenters);
+      
+      console.log('All Supabase Locations (after setAllSupabaseLocations - will be stale here):', allSupabaseLocations.length); // will be stale here
+      console.log('Filtered Evacuation Centers (after setEvacuationCenters):', filteredEvacCenters);
+      console.log(`Number of Evacuation Centers found: ${filteredEvacCenters.length}`);
+
+      console.log('Successfully fetched locations (from fetchAllLocations):', data);
+    } catch (e) {
+      console.error('Caught error during fetchAllLocations (outer catch):', e);
+      setError(`Failed to load locations: ${e.message}`);
+    } finally {
+      setLoading(false);
+      console.log("--- fetchAllLocations finished (Log from inside the function) ---");
+    }
+  };
+
+  // Geocoding function using Nominatim
+  const geocodeAddress = async (query) => {
+    console.log(`Attempting to geocode: "${query}" using Nominatim...`);
+    try {
+        const response = await fetch(`${NOMINATIM_BASE_URL}&q=${encodeURIComponent(query)}`, {
+            headers: {
+                'User-Agent': 'eHANDA-App/1.0 (contact@example.com)' // Replace with your actual app name and contact
+            }
+        });
+        if (!response.ok) {
+            throw new Error(`Nominatim API error: ${response.status} ${response.statusText}`);
+        }
+        const data = await response.json();
+        if (data && data.length > 0) {
+            console.log("Nominatim geocoding successful:", data[0]);
+            // Return first result's lat, lon, and display_name
+            return {
+                latitude: parseFloat(data[0].lat),
+                longitude: parseFloat(data[0].lon),
+                name: data[0].display_name || query // Use display_name or fallback to query
+            };
+        } else {
+            console.log(`Nominatim found no results for: "${query}"`);
+            return null;
+        }
+    } catch (e) {
+        console.error(`Error geocoding address "${query}":`, e);
+        // Do not set global error here, as it's handled by getLiveLocationAndCalculateRoute's overall logic
+        return null;
+    }
+  };
+
+
+  const getLiveLocationAndCalculateRoute = async () => {
+    console.log("--- getLiveLocationAndCalculateRoute started ---");
+    setLoading(true);
+    setError(null);
+    setRoute(null);
+    setTotalDistance(null);
+
+    // Validate destination
+    if (!selectedEvacCenterId) {
+      Alert.alert('Selection Needed', 'Please select an evacuation center as your destination.');
+      setLoading(false);
+      console.log("--- getLiveLocationAndCalculateRoute finished: No evacuation center selected ---");
+      return;
+    }
+
+    // Determine start location coordinates
+    let actualStartLatitude;
+    let actualStartLongitude;
+
+    if (startLocation.toLowerCase().includes('home (my location)')) { // Check for the full 'Home (My Location)' string
+      console.log("Start location is 'Home'. Checking currentLocation...");
+      if (!currentLocation) {
+        Alert.alert('Location Missing', '"Home" was selected, but your current location could not be determined. Please ensure location permissions are granted and try again.');
+        setLoading(false);
+        console.log("--- getLiveLocationAndCalculateRoute finished: Current location not available for 'Home' ---");
+        return;
+      }
+      actualStartLatitude = currentLocation.latitude;
+      actualStartLongitude = currentLocation.longitude;
+      console.log(`Using current location for 'Home': ${actualStartLatitude}, ${actualStartLongitude}`);
+    } else if (matchedStartLocationCoords) { // If a pre-existing location (DB or Nominatim) was matched
+        console.log("Start location matched a pre-existing location in DB or geocoded by Nominatim.");
+        actualStartLatitude = matchedStartLocationCoords.latitude;
+        actualStartLongitude = matchedStartLocationCoords.longitude;
+        console.log(`Using matched start: ${matchedStartLocationCoords.name} (${actualStartLatitude}, ${actualStartLongitude})`);
+    }
+    else if (startLocation.trim() === "") { // If no home, no match, and input is empty
+      Alert.alert('Starting Point Needed', 'Please enter your starting location.');
+      setLoading(false);
+      console.log("--- getLiveLocationAndCalculateRoute finished: Start location empty ---");
+      return;
+    } else {
+        // This is the fallback for truly custom, un-geocoded addresses
+        Alert.alert('Location Not Found', 'Could not determine coordinates for your starting location. Please check the address or try "Home".');
+        setLoading(false);
+        console.log("--- getLiveLocationAndCalculateRoute finished: Start location not geocoded ---");
+        return;
+    }
+
+    try {
+      console.log("Finding selected evacuation center details...");
+      const endEvacCenter = evacuationCenters.find(ec => ec.id === selectedEvacCenterId);
+      if (!endEvacCenter) {
+        console.error("Error: Selected evacuation center not found in the list!");
+        throw new Error('Selected evacuation center not found.');
+      }
+      const endLocationId = endEvacCenter.id;
+      console.log(`Destination Evac Center ID: ${endLocationId}`);
+
+      const EDGE_FUNCTION_URL = 'https://ejzoaoihgrzccpiwtwsb.supabase.co/functions/v1/find-shortest-path';
+
+      const payload = {
+        start_latitude: actualStartLatitude,
+        start_longitude: actualStartLongitude,
+        end_location_id: endLocationId,
+      };
+
+      console.log('Calling Edge Function with payload:', payload);
+
+      console.log("Sending fetch request to Edge Function...");
+      const response = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseAnonKey}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      console.log(`Edge Function response status: ${response.status}`);
+      const data = await response.json();
+      console.log("Edge Function raw response data:", data);
+
+      if (!response.ok) {
+        console.error("Edge Function returned non-OK status. Error data:", data);
+        throw new Error(data.error || `Edge Function error: ${response.status} ${response.statusText}`);
+      }
+
+      setRoute(data.path);
+      setTotalDistance(data.total_distance);
+      console.log('Route from Edge Function:', data);
+      console.log("--- getLiveLocationAndCalculateRoute finished: Success ---");
+
+    } catch (e) {
+      console.error('Caught error in getLiveLocationAndCalculateRoute:', e);
+      setError(`Failed to calculate route: ${e.message}`);
+      Alert.alert('Route Error', `Failed to calculate route: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const animatedHeaderHeight = scrollY.interpolate({
-    inputRange: [0, 100],
-    outputRange: [80, 50],
-    extrapolate: "clamp",
+    inputRange: [0, 100], outputRange: [80, 50], extrapolate: "clamp",
   });
 
-  // Toggle dropdown with improved state management
   const toggleDropdown = () => {
-    // Hide keyboard if open
     Keyboard.dismiss();
-
-    // Toggle dropdown state
     setDropdownExpanded((prevState) => !prevState);
-
-    // Reset search focused state when closing dropdown
     if (dropdownExpanded) {
       setSearchFocused(false);
     }
-
-    // Scroll to top when opening dropdown
     if (!dropdownExpanded && scrollViewRef.current) {
       setTimeout(() => {
-        scrollViewRef.current.scrollTo({ x: 0, y: 0, animated: true });
+        scrollViewRef.current?.scrollTo({ x: 0, y: 0, animated: true });
       }, 300);
     }
   };
 
-  // Handle outside press with improved touch handling
   const handleOutsidePress = () => {
     if (dropdownExpanded) {
-      // Don't close if user is typing in search
       if (!searchFocused) {
         setDropdownExpanded(false);
       }
     }
   };
 
-  // Handle transport mode selection with feedback
   const handleTransportMode = (mode) => {
     setTransportMode(mode);
-
-    // Provide haptic feedback on selection
     if (Platform.OS === "ios") {
       Haptics.selectionAsync();
     } else {
@@ -161,53 +369,138 @@ const LocationScreen = ({ navigation = {} }) => {
     }
   };
 
-  // Smart location search handling
-  const handleLocationInput = (text, isStartLocation) => {
+  const handleLocationInput = async (text, isStartLocation) => {
     if (isStartLocation) {
-      setStartLocation(text);
-    } else {
-      setDestinationLocation(text);
-    }
+      setStartLocation(text); // Always set the displayed text to what the user typed.
+      setCurrentLocation(null); // Clear live location if input changes.
+      setMatchedStartLocationCoords(null); // Clear any previous matched location.
 
-    // Automatically expand dropdown when typing
+      if (text.toLowerCase() === "home") {
+        const success = await requestAndSetCurrentLocation();
+        if (success) {
+          // If "Home" is successful, we can update the display for clarity
+          setStartLocation("Home (My Location)");
+        } else {
+          // If "Home" failed, clear input as it's no longer 'Home (My Location)'
+          setStartLocation("");
+        }
+      } else if (text.trim() === "") {
+        // If input is empty, ensure all relevant states are cleared
+        setStartLocation("");
+        setCurrentLocation(null);
+        setMatchedStartLocationCoords(null);
+      } else {
+        // Try to find a match in allSupabaseLocations
+        const matchedLoc = allSupabaseLocations.find(loc =>
+          loc.name && loc.name.toLowerCase().includes(text.toLowerCase())
+        );
+
+        if (matchedLoc) {
+            setMatchedStartLocationCoords({
+                id: matchedLoc.id,
+                latitude: matchedLoc.latitude,
+                longitude: matchedLoc.longitude,
+                name: matchedLoc.name
+            });
+            console.log(`Internal match from Supabase found for: "${text}" -> "${matchedLoc.name}"`);
+            // DO NOT setStartLocation(matchedLoc.name) here. Keep user's typed text.
+        } else {
+            // If no match in Supabase, try Nominatim for exact match or best guess
+            console.log(`No direct match in Supabase for "${text}". Trying Nominatim...`);
+            const geocodedResult = await geocodeAddress(text);
+            if (geocodedResult) {
+                setMatchedStartLocationCoords({
+                    id: null, // No direct DB ID from Nominatim, as it's a geocoded point
+                    latitude: geocodedResult.latitude,
+                    longitude: geocodedResult.longitude,
+                    name: geocodedResult.name // Nominatim's full name for the location
+                });
+                console.log(`Nominatim geocoded: "${text}" -> "${geocodedResult.name}"`);
+                // DO NOT setStartLocation(geocodedResult.name) here. Keep user's typed text.
+            } else {
+                setMatchedStartLocationCoords(null); // No match from Nominatim either
+                console.log(`No match found by Nominatim for "${text}".`);
+            }
+        }
+      }
+    } else { // This is for destination - its autofill logic is fine as it's a selection
+      setDestinationLocation(text);
+      const matchedEvac = evacuationCenters.find(ec =>
+        ec.name && ec.name.toLowerCase().includes(text.toLowerCase())
+      );
+      if (matchedEvac) {
+        setSelectedEvacCenterId(matchedEvac.id);
+        setDestinationLocation(matchedEvac.name); // This autofill is desired for selection
+      } else {
+        setSelectedEvacCenterId(null);
+      }
+    }
+    // Only expand dropdown if user types something, and it's not already expanded
     if (!dropdownExpanded && text.length > 0) {
       setDropdownExpanded(true);
     }
   };
 
-  // Clear text fields with improved UX
   const clearLocationInput = (isStartLocation) => {
     if (isStartLocation) {
       setStartLocation("");
+      setCurrentLocation(null);
+      setMatchedStartLocationCoords(null);
       startLocationInputRef.current?.focus();
     } else {
       setDestinationLocation("");
       destinationInputRef.current?.focus();
+      setSelectedEvacCenterId(null);
     }
   };
 
-  // Handle swap locations with animation
   const handleSwapLocations = () => {
-    // Create a swapping animation for better feedback
     Animated.sequence([
-      Animated.timing(searchBarExpansion, {
-        toValue: 1,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-      Animated.timing(searchBarExpansion, {
-        toValue: 0,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    // Swap the actual values
+      Animated.timing(searchBarExpansion, { toValue: 1, duration: 150, useNativeDriver: true, }).start(),
+      Animated.timing(searchBarExpansion, { toValue: 0, duration: 150, useNativeDriver: true, }).start(),
+    ]);
     const tempStart = startLocation;
     setStartLocation(destinationLocation);
     setDestinationLocation(tempStart);
+    
+    // Logic for setting new start location (original destination)
+    const originalDestinationLoc = allSupabaseLocations.find(loc => loc.name === destinationLocation);
+    if (originalDestinationLoc) {
+        setMatchedStartLocationCoords({
+            id: originalDestinationLoc.id,
+            latitude: originalDestinationLoc.latitude,
+            longitude: originalDestinationLoc.longitude,
+            name: originalDestinationLoc.name
+        });
+        setCurrentLocation(null); // Clear live location
+    } else if (destinationLocation.toLowerCase().includes('home')) {
+        requestAndSetCurrentLocation(); // Re-trigger live location
+        setMatchedStartLocationCoords(null);
+    } else {
+        // If original destination was custom text not matched in DB, try geocoding it for new start
+        geocodeAddress(destinationLocation).then(geocodedResult => {
+            if (geocodedResult) {
+                setMatchedStartLocationCoords({
+                    id: null,
+                    latitude: geocodedResult.latitude,
+                    longitude: geocodedResult.longitude,
+                    name: geocodedResult.name
+                });
+            } else {
+                setMatchedStartLocationCoords(null);
+            }
+        });
+        setCurrentLocation(null);
+    }
 
-    // Provide haptic feedback
+    // Logic for setting new destination (original start)
+    const originalStartLoc = evacuationCenters.find(loc => loc.name === tempStart);
+    if (originalStartLoc) {
+        setSelectedEvacCenterId(originalStartLoc.id);
+    } else {
+        setSelectedEvacCenterId(null);
+    }
+
     if (Platform.OS === "ios") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } else {
@@ -215,906 +508,363 @@ const LocationScreen = ({ navigation = {} }) => {
     }
   };
 
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        {/* Top search bar - always visible, with enhanced interactivity */}
-        <Animated.View
-          style={[
-            styles.searchWrapper,
-            {
-              transform: [
-                {
-                  translateY: searchBarExpansion.interpolate({
-                    inputRange: [0, 0.5, 1],
-                    outputRange: [0, -5, 0],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
-          <View style={styles.searchContainer}>
-            <View style={styles.backButtonContainer}>
-              {/* Dropdown toggle button with improved visual feedback */}
-              <TouchableOpacity
-                style={[
-                  styles.dropdownToggle,
-                  dropdownExpanded && styles.dropdownToggleActive,
-                ]}
-                onPress={toggleDropdown}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={dropdownExpanded ? "chevron-up" : "chevron-down"}
-                  size={24}
-                  color={dropdownExpanded ? "#3884ff" : "#333"}
-                />
-              </TouchableOpacity>
-
-              <View style={styles.searchBarWrapper}>
-                {/* Start location input - improved interaction */}
-                <TouchableOpacity
-                  style={styles.searchBarInput}
-                  onPress={() => {
-                    if (!dropdownExpanded) {
-                      setDropdownExpanded(true);
-                    }
-                    setTimeout(() => {
-                      startLocationInputRef.current?.focus();
-                    }, 300);
-                  }}
-                >
-                  <View style={styles.searchInputIcon}>
-                    <Ionicons name="locate" size={20} color="#D32F2F" />
-                  </View>
-                  {dropdownExpanded ? (
-                    <TextInput
-                      ref={startLocationInputRef}
-                      style={
-                        startLocation
-                          ? styles.searchInputText
-                          : styles.searchInputPlaceholder
-                      }
-                      placeholder="Choose start location"
-                      placeholderTextColor="#999"
-                      value={startLocation}
-                      onChangeText={(text) => handleLocationInput(text, true)}
-                    />
-                  ) : (
-                    <Text
-                      style={
-                        startLocation
-                          ? styles.searchInputText
-                          : styles.searchInputPlaceholder
-                      }
-                    >
-                      {startLocation || "Choose start location"}
-                    </Text>
-                  )}
-                  {startLocation ? (
-                    <TouchableOpacity
-                      style={styles.clearInputButton}
-                      onPress={() => clearLocationInput(true)}
-                    >
-                      <Ionicons name="close-circle" size={18} color="#999" />
-                    </TouchableOpacity>
-                  ) : null}
-                </TouchableOpacity>
-
-                {/* Destination input - improved interaction */}
-                <TouchableOpacity
-                  style={styles.searchBarInput}
-                  onPress={() => {
-                    if (!dropdownExpanded) {
-                      setDropdownExpanded(true);
-                    }
-                    setTimeout(() => {
-                      destinationInputRef.current?.focus();
-                    }, 300);
-                  }}
-                >
-                  <View style={styles.searchInputIcon}>
-                    <Ionicons name="navigate" size={20} color="#333" />
-                  </View>
-                  {dropdownExpanded ? (
-                    <TextInput
-                      ref={destinationInputRef}
-                      style={
-                        destinationLocation
-                          ? styles.searchInputText
-                          : styles.searchInputPlaceholder
-                      }
-                      placeholder="Choose destination"
-                      placeholderTextColor="#999"
-                      value={destinationLocation}
-                      onChangeText={(text) => handleLocationInput(text, false)}
-                    />
-                  ) : (
-                    <Text
-                      style={
-                        destinationLocation
-                          ? styles.searchInputText
-                          : styles.searchInputPlaceholder
-                      }
-                    >
-                      {destinationLocation || "Choose destination"}
-                    </Text>
-                  )}
-                  {destinationLocation ? (
-                    <TouchableOpacity
-                      style={styles.clearInputButton}
-                      onPress={() => clearLocationInput(false)}
-                    >
-                      <Ionicons name="close-circle" size={18} color="#999" />
-                    </TouchableOpacity>
-                  ) : null}
-                </TouchableOpacity>
-              </View>
-
-              {/* Swap locations button with improved feedback */}
-              <TouchableOpacity
-                style={[
-                  styles.swapButton,
-                  startLocation && destinationLocation
-                    ? styles.swapButtonActive
-                    : null,
-                ]}
-                onPress={handleSwapLocations}
-                disabled={!startLocation || !destinationLocation}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name="swap-vertical"
-                  size={24}
-                  color={
-                    startLocation && destinationLocation ? "#3884ff" : "#999"
-                  }
-                />
-              </TouchableOpacity>
-            </View>
-
-            {/* Transportation mode options with improved selection UX */}
-            <View style={styles.transportModeContainer}>
-              {[
-                { id: "car", icon: "car", label: "Car" },
-                { id: "motorcycle", icon: "bicycle", label: "Motorcycle" },
-                { id: "walk", icon: "walk", label: "Walk" },
-              ].map((mode) => (
-                <TouchableOpacity
-                  key={mode.id}
-                  style={[
-                    styles.transportModeButton,
-                    transportMode === mode.id &&
-                      styles.transportModeButtonActive,
-                  ]}
-                  onPress={() => handleTransportMode(mode.id)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name={mode.icon}
-                    size={22}
-                    color={transportMode === mode.id ? "#fff" : "#333"}
-                  />
-                  <Text
-                    style={[
-                      styles.transportModeLabel,
-                      transportMode === mode.id &&
-                        styles.transportModeLabelActive,
-                    ]}
-                  >
-                    {mode.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* Background blur with improved behavior */}
-        {Platform.OS === "ios" ? (
-          <Animated.View
-            style={[
-              styles.blurContainer,
-              {
-                opacity: backgroundBlurAnimation,
-                zIndex: dropdownExpanded ? 9 : -1,
-              },
-            ]}
-            pointerEvents={dropdownExpanded ? "auto" : "none"}
-          >
-            <BlurView
-              intensity={15}
-              style={[StyleSheet.absoluteFill, { bottom: FOOTER_HEIGHT }]}
-            />
-            <TouchableWithoutFeedback onPress={handleOutsidePress}>
-              <View
-                style={[StyleSheet.absoluteFill, { bottom: FOOTER_HEIGHT }]}
-              />
-            </TouchableWithoutFeedback>
-          </Animated.View>
-        ) : (
-          <Animated.View
-            style={[
-              styles.blurContainer,
-              {
-                backgroundColor: backgroundBlurAnimation.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ["rgba(0,0,0,0)", "rgba(0,0,0,0.5)"],
-                }),
-                zIndex: dropdownExpanded ? 9 : -1,
-              },
-            ]}
-            pointerEvents={dropdownExpanded ? "auto" : "none"}
-          >
-            <TouchableWithoutFeedback onPress={handleOutsidePress}>
-              <View
-                style={[StyleSheet.absoluteFill, { bottom: FOOTER_HEIGHT }]}
-              />
-            </TouchableWithoutFeedback>
-          </Animated.View>
-        )}
-
-        {/* Dropdown panel - with pull-to-close gesture and improved animations */}
-        <Animated.View
-          style={[
-            styles.dropdownPanel,
-            {
-              transform: [
-                {
-                  translateY: dropdownAnimation.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [SCREEN_HEIGHT - FOOTER_HEIGHT, 0],
-                  }),
-                },
-              ],
-              height: SCREEN_HEIGHT - FOOTER_HEIGHT,
-              zIndex: 10,
-              opacity: dropdownAnimation.interpolate({
-                inputRange: [0, 0.5, 1],
-                outputRange: [0, 0.8, 1],
-              }),
-            },
-          ]}
-          pointerEvents={dropdownExpanded ? "auto" : "none"}
-        >
-          {/* Pull indicator for better usability */}
-          <View style={styles.pullIndicator}>
-            <View style={styles.pullIndicatorBar} />
-          </View>
-
-          {/* Dropdown header with collapsible animation */}
-          <Animated.View
-            style={[styles.dropdownHeader, { height: animatedHeaderHeight }]}
-          >
-            <Text style={styles.dropdownTitle}>
-              {startLocation && destinationLocation
-                ? "Route Information"
-                : "Location Details"}
-            </Text>
-            <TouchableOpacity
-              style={styles.closeDropdownButton}
-              onPress={() => setDropdownExpanded(false)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      <StatusBar barStyle="dark-content" translucent />
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.container}>
+          <View style={styles.mapContainer}>
+            <MapView
+              style={styles.map}
+              initialRegion={currentLocation || matchedStartLocationCoords ? {
+                latitude: (currentLocation || matchedStartLocationCoords).latitude,
+                longitude: (currentLocation || matchedStartLocationCoords).longitude,
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
+              } : DEFAULT_MAP_REGION}
+              showsUserLocation={currentLocation ? true : false}
             >
-              <Ionicons name="close" size={24} color="#333" />
+              {/* Current Location Marker - only render if currentLocation exists */}
+              {currentLocation && (
+                <Marker
+                  coordinate={{ latitude: currentLocation.latitude, longitude: currentLocation.longitude }}
+                  title="Your Current Location"
+                  description="Starting Point (Home)"
+                  pinColor="blue"
+                />
+              )}
+
+              {/* Matched Start Location Marker - only render if matchedStartLocationCoords exists and no live location */}
+              {matchedStartLocationCoords && !currentLocation && (
+                <Marker
+                  coordinate={{ latitude: matchedStartLocationCoords.latitude, longitude: matchedStartLocationCoords.longitude }}
+                  title={matchedStartLocationCoords.name}
+                  description="Starting Point (Pre-defined)"
+                  pinColor="purple"
+                />
+              )}
+
+              {evacuationCenters.map((center) => (
+                <Marker
+                  key={center.id}
+                  coordinate={{ latitude: center.latitude, longitude: center.longitude }}
+                  title={center.name}
+                  description={center.type === 'evacuation_center' ? 'Evacuation Center' : 'Map Point'}
+                  pinColor={selectedEvacCenterId === center.id ? "green" : "red"}
+                  onPress={() => {
+                        setSelectedEvacCenterId(center.id);
+                        setDestinationLocation(center.name);
+                        setDropdownExpanded(false);
+                        Keyboard.dismiss();
+                  }}
+                />
+              ))}
+
+              {route && route.length > 1 && (
+                <Polyline
+                  coordinates={route.map(loc => ({ latitude: loc.latitude, longitude: loc.longitude }))}
+                  strokeColor="#0000FF"
+                  strokeWidth={5}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+              )}
+            </MapView>
+          </View>
+
+          <Animated.View style={[styles.headerContainer, { height: animatedHeaderHeight }]}>
+            <BlurView intensity={30} tint="light" style={StyleSheet.absoluteFillObject} />
+            <TouchableOpacity onPress={toggleDropdown} style={styles.menuButton}>
+              <Ionicons name="menu" size={28} color="#333" />
+            </TouchableOpacity>
+            <Animated.View
+              style={[
+                styles.searchBar,
+                {
+                  transform: [
+                    {
+                      scaleX: searchBarExpansion.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 0.9],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search location..."
+                value={startLocation}
+                onFocus={() => {
+                    setSearchFocused(true);
+                    setDropdownExpanded(true);
+                }}
+                onChangeText={text => handleLocationInput(text, true)}
+                ref={startLocationInputRef}
+                editable={true}
+              />
+              {startLocation.length > 0 && (
+                <TouchableOpacity onPress={() => clearLocationInput(true)} style={styles.clearButton}>
+                  <Ionicons name="close-circle" size={20} color="#999" />
+                </TouchableOpacity>
+              )}
+            </Animated.View>
+            <TouchableOpacity onPress={() => navigation.openDrawer()} style={styles.profileButton}>
+              <Ionicons name="person-circle-outline" size={32} color="#333" />
             </TouchableOpacity>
           </Animated.View>
 
-          {/* Scrollable content with enhanced scroll behavior */}
-          <ScrollView
-            ref={scrollViewRef}
-            style={styles.dropdownScrollContent}
-            contentContainerStyle={styles.dropdownScrollContentContainer}
-            showsVerticalScrollIndicator={true}
-            onScroll={Animated.event(
-              [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-              { useNativeDriver: false }
-            )}
-            scrollEventThrottle={16}
-            bounces={true}
-            onScrollBeginDrag={() => {
-              // Track for pull-to-close gesture
-              panResponderY.setValue(0);
-            }}
-            onScroll={(e) => {
-              // Implement pull-to-close
-              if (e.nativeEvent.contentOffset.y < -PULL_THRESHOLD) {
-                setDropdownExpanded(false);
-              }
-            }}
-          >
-            {/* Recent searches for better UX */}
-            {(startLocationInputRef.current?.isFocused() ||
-              destinationInputRef.current?.isFocused()) && (
-              <View style={styles.recentSearchesContainer}>
-                <Text style={styles.recentSearchesTitle}>Recent Searches</Text>
-                {recentSearches.map((search, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.recentSearchItem}
-                    onPress={() => {
-                      if (startLocationInputRef.current?.isFocused()) {
-                        setStartLocation(search);
-                      } else if (destinationInputRef.current?.isFocused()) {
-                        setDestinationLocation(search);
-                      }
-                      Keyboard.dismiss();
-                    }}
-                  >
-                    <Ionicons name="time-outline" size={18} color="#666" />
-                    <Text style={styles.recentSearchText}>{search}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            {/* Main content area - Location list example */}
-            <View style={styles.contentContainer}>
-              <View style={styles.locationsListContainer}>
-                <Text style={styles.locationsListTitle}>
-                  Nearby Evacuation Centers
-                </Text>
-                {/* Sample evacuation center item with enhanced interaction */}
-                <TouchableOpacity
-                  style={styles.locationListItem}
-                  onPress={() => {
-                    // Set as destination on tap
-                    setDestinationLocation("Central Evacuation Center");
-
-                    // Provide feedback
-                    if (Platform.OS === "ios") {
-                      Haptics.selectionAsync();
-                    }
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <View
-                    style={[
-                      styles.locationIconContainer,
-                      { backgroundColor: "rgba(76, 175, 80, 0.1)" },
-                    ]}
-                  >
-                    <Ionicons name="shield" size={20} color="#4CAF50" />
-                  </View>
-                  <View style={styles.locationInfoContainer}>
-                    <Text style={styles.locationTitle}>
-                      Central Evacuation Center
-                    </Text>
-                    <Text style={styles.locationDescription}>
-                      Large facility with medical services
-                    </Text>
-                  </View>
-                  <View style={styles.locationActionContainer}>
-                    <Text style={styles.locationDistance}>1.2 km</Text>
-                    <Ionicons name="chevron-forward" size={18} color="#999" />
-                  </View>
-                </TouchableOpacity>
-
-                {/* Another sample item with enhanced interaction */}
-                <TouchableOpacity
-                  style={styles.locationListItem}
-                  onPress={() => {
-                    // Set as destination on tap
-                    setDestinationLocation("Westside Community Shelter");
-
-                    // Provide feedback
-                    if (Platform.OS === "ios") {
-                      Haptics.selectionAsync();
-                    }
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <View
-                    style={[
-                      styles.locationIconContainer,
-                      { backgroundColor: "rgba(76, 175, 80, 0.1)" },
-                    ]}
-                  >
-                    <Ionicons name="shield" size={20} color="#4CAF50" />
-                  </View>
-                  <View style={styles.locationInfoContainer}>
-                    <Text style={styles.locationTitle}>
-                      Westside Community Shelter
-                    </Text>
-                    <Text style={styles.locationDescription}>
-                      Emergency supplies and accommodation
-                    </Text>
-                  </View>
-                  <View style={styles.locationActionContainer}>
-                    <Text style={styles.locationDistance}>2.5 km</Text>
-                    <Ionicons name="chevron-forward" size={18} color="#999" />
-                  </View>
-                </TouchableOpacity>
-
-                {/* Add a third option for better selection */}
-                <TouchableOpacity
-                  style={styles.locationListItem}
-                  onPress={() => {
-                    // Set as destination on tap
-                    setDestinationLocation("Eastside Hospital");
-
-                    // Provide feedback
-                    if (Platform.OS === "ios") {
-                      Haptics.selectionAsync();
-                    }
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <View
-                    style={[
-                      styles.locationIconContainer,
-                      { backgroundColor: "rgba(244, 67, 54, 0.1)" },
-                    ]}
-                  >
-                    <Ionicons name="medkit" size={20} color="#F44336" />
-                  </View>
-                  <View style={styles.locationInfoContainer}>
-                    <Text style={styles.locationTitle}>Eastside Hospital</Text>
-                    <Text style={styles.locationDescription}>
-                      Medical facility with emergency services
-                    </Text>
-                  </View>
-                  <View style={styles.locationActionContainer}>
-                    <Text style={styles.locationDistance}>3.8 km</Text>
-                    <Ionicons name="chevron-forward" size={18} color="#999" />
-                  </View>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Legend panel */}
-            <View style={styles.dropdownBottomPanel}>
-              <View style={styles.legendContainer}>
-                <Text style={styles.legendTitle}>Location Legend</Text>
-                <View style={styles.legendItems}>
-                  <View style={styles.legendItem}>
-                    <View
-                      style={[
-                        styles.legendColor,
-                        { backgroundColor: "#4CAF50" },
-                      ]}
-                    />
-                    <Text style={styles.legendText}>Evacuation Centers</Text>
-                  </View>
-                  <View style={styles.legendItem}>
-                    <View
-                      style={[
-                        styles.legendColor,
-                        { backgroundColor: "#FF9800" },
-                      ]}
-                    />
-                    <Text style={styles.legendText}>Flood Areas</Text>
-                  </View>
-                  <View style={styles.legendItem}>
-                    <View
-                      style={[
-                        styles.legendColor,
-                        { backgroundColor: "#F44336" },
-                      ]}
-                    />
-                    <Text style={styles.legendText}>Danger Zones</Text>
-                  </View>
-                  <View style={styles.legendItem}>
-                    <View
-                      style={[
-                        styles.legendColor,
-                        { backgroundColor: "#3884ff" },
-                      ]}
-                    />
-                    <Text style={styles.legendText}>Favorite Locations</Text>
-                  </View>
-                </View>
-                <Text style={styles.legendHelp}>
-                  Search for a location or tap any evacuation center to find the
-                  safest route.
-                </Text>
-              </View>
-            </View>
-
-            {/* Navigation button */}
-            <View style={styles.dropdownActionContainer}>
-              <TouchableOpacity
+          {dropdownExpanded && (
+            <TouchableWithoutFeedback onPress={handleOutsidePress}>
+              <Animated.View
                 style={[
-                  styles.navigationButton,
-                  (!startLocation || !destinationLocation) &&
-                    styles.navigationButtonDisabled,
+                  styles.dropdownOverlay,
+                  {
+                    opacity: backgroundBlurAnimation,
+                  },
                 ]}
-                activeOpacity={0.7}
-                disabled={!startLocation || !destinationLocation}
-                onPress={() => {
-                  setDropdownExpanded(false);
-                  // Provide strong feedback for important action
-                  if (Platform.OS === "ios") {
-                    Haptics.notificationAsync(
-                      Haptics.NotificationFeedbackType.Success
-                    );
-                  } else {
-                    Vibration.vibrate(40);
-                  }
-                }}
               >
-                <Ionicons name="navigate" size={24} color="#fff" />
-                <Text style={styles.navigationButtonText}>
-                  Start Navigation
-                </Text>
-              </TouchableOpacity>
+                <BlurView
+                  intensity={90}
+                  tint="dark"
+                  style={StyleSheet.absoluteFillObject}
+                />
+                <LinearGradient
+                  colors={["rgba(255,255,255,1)", "rgba(255,255,255,0.8)"]}
+                  style={styles.dropdownContent}
+                >
+                  <TouchableOpacity onPress={toggleDropdown} style={styles.closeDropdownButton}>
+                    <Ionicons name="chevron-down" size={28} color="#666" />
+                  </TouchableOpacity>
 
-              {/* Quick action buttons for better UX */}
-              <View style={styles.quickActionContainer}>
-                {startLocation && destinationLocation && (
-                  <>
-                    <TouchableOpacity style={styles.quickActionButton}>
-                      <Ionicons name="heart-outline" size={20} color="#666" />
-                      <Text style={styles.quickActionText}>Save</Text>
+                  <Text style={styles.dropdownTitle}>Where to?</Text>
+
+                  <View style={styles.locationInputsContainer}>
+                    <View style={styles.inputRow}>
+                      <Ionicons name="navigate-circle" size={24} color="#007bff" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.dropdownInput}
+                        placeholder="Your starting location (e.g., 'Home')"
+                        value={startLocation}
+                        onChangeText={text => handleLocationInput(text, true)}
+                        ref={startLocationInputRef}
+                        onFocus={() => { setSearchFocused(true); setDropdownExpanded(true); }}
+                        onBlur={() => setSearchFocused(false)}
+                      />
+                      {startLocation.length > 0 && (
+                        <TouchableOpacity onPress={() => clearLocationInput(true)} style={styles.clearButton}>
+                          <Ionicons name="close-circle" size={20} color="#999" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    <TouchableOpacity onPress={handleSwapLocations} style={styles.swapButton}>
+                      <Ionicons name="swap-vertical" size={24} color="#007bff" />
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.quickActionButton}>
-                      <Ionicons name="share-outline" size={20} color="#666" />
-                      <Text style={styles.quickActionText}>Share</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-              </View>
-            </View>
-          </ScrollView>
-        </Animated.View>
-      </View>
+                    <View style={styles.inputRow}>
+                      <Ionicons name="location-sharp" size={24} color="#dc3545" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.dropdownInput}
+                        placeholder="Choose destination"
+                        value={destinationLocation}
+                        onChangeText={(text) => handleLocationInput(text, false)}
+                        ref={destinationInputRef}
+                        onFocus={() => setSearchFocused(true)}
+                        onBlur={() => setSearchFocused(false)}
+                      />
+                      {destinationLocation.length > 0 && (
+                        <TouchableOpacity onPress={() => clearLocationInput(false)} style={styles.clearButton}>
+                          <Ionicons name="close-circle" size={20} color="#999" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+
+                  <View style={styles.transportModeContainer}>
+                    <Text style={styles.sectionTitle}>Mode of Transport</Text>
+                    <View style={styles.modeButtons}>
+                      <TouchableOpacity
+                        style={[styles.modeButton, transportMode === "car" && styles.selectedMode]}
+                        onPress={() => handleTransportMode("car")}
+                      >
+                        <Ionicons name="car" size={24} color={transportMode === "car" ? "#fff" : "#333"} />
+                        <Text style={[styles.modeButtonText, transportMode === "car" && styles.selectedModeText]}>Car</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.modeButton, transportMode === "walk" && styles.selectedMode]}
+                        onPress={() => handleTransportMode("walk")}
+                      >
+                        <Ionicons name="walk" size={24} color={transportMode === "walk" ? "#fff" : "#333"} />
+                        <Text style={[styles.modeButtonText, transportMode === "walk" && styles.selectedModeText]}>Walk</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.modeButton, transportMode === "bike" && styles.selectedMode]}
+                        onPress={() => handleTransportMode("bike")}
+                      >
+                        <Ionicons name="bicycle" size={24} color={transportMode === "bike" ? "#fff" : "#333"} />
+                        <Text style={[styles.modeButtonText, transportMode === "bike" && styles.selectedModeText]}>Bike</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  
+                  <Text style={styles.sectionTitle}>Evacuation Centers</Text>
+                  <ScrollView style={styles.evacCentersScrollView} keyboardShouldPersistTaps="handled">
+                    {loading ? (
+                        <ActivityIndicator size="small" color="#0000ff" />
+                    ) : error ? (
+                        <Text style={styles.errorText}>{error}</Text>
+                    ) : evacuationCenters.length > 0 ? (
+                        evacuationCenters.map((center) => (
+                            <TouchableOpacity
+                                key={center.id}
+                                style={styles.evacCenterItem}
+                                onPress={() => {
+                                    setSelectedEvacCenterId(center.id);
+                                    setDestinationLocation(center.name);
+                                    setDropdownExpanded(false);
+                                    Keyboard.dismiss();
+                                }}
+                            >
+                                <Ionicons name="flag" size={20} color="#28a745" style={styles.evacCenterIcon} />
+                                <Text style={styles.evacCenterName}>{center.name}</Text>
+                            </TouchableOpacity>
+                        ))
+                    ) : (
+                        <Text style={styles.noDataText}>No evacuation centers found.</Text>
+                    )}
+                  </ScrollView>
+
+                  <TouchableOpacity
+                    style={styles.calculateRouteButton}
+                    onPress={getLiveLocationAndCalculateRoute}
+                    // Disable if loading, no destination selected, and (neither live location nor matched DB/Nominatim location available for start)
+                    disabled={loading || !selectedEvacCenterId || (!currentLocation && !matchedStartLocationCoords)}
+                  >
+                    {loading ? (
+                        <ActivityIndicator color="#fff" />
+                    ) : (
+                        <Text style={styles.calculateRouteButtonText}>Calculate Route</Text>
+                    )}
+                  </TouchableOpacity>
+
+                  {totalDistance !== null && (
+                    <Text style={styles.resultText}>
+                      Estimated Distance: {totalDistance.toFixed(2)} km
+                    </Text>
+                  )}
+                  {error && (
+                    <Text style={styles.errorTextSmall}>{error}</Text>
+                  )}
+
+                </LinearGradient>
+              </Animated.View>
+            </TouchableWithoutFeedback>
+          )}
+
+          <View style={styles.bottomNav}>
+            <Text style={styles.bottomNavText}>Bottom Navigation (Placeholder)</Text>
+          </View>
+        </View>
+      </TouchableWithoutFeedback>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
+  safeArea: { flex: 1, backgroundColor: '#f0f0f0', },
+  container: { flex: 1, backgroundColor: '#fff', },
+  mapContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', },
+  map: { ...StyleSheet.absoluteFillObject, },
+  mapLoadingIndicator: { position: 'absolute', alignSelf: 'center', top: '50%', },
+  headerContainer: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+    paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', backgroundColor: 'transparent',
+    zIndex: 10, overflow: 'hidden',
   },
-  container: {
-    flex: 1,
-    position: "relative",
+  menuButton: { padding: 8, },
+  searchBar: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.8)', borderRadius: 25,
+    paddingHorizontal: 15, marginHorizontal: 10, height: 40,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 3, },
+      android: { elevation: 3, },
+    }),
   },
-  searchWrapper: {
-    position: "absolute",
-    top: 10,
-    left: 10,
-    right: 10,
-    zIndex: 10,
-    backgroundColor: "transparent",
+  searchInput: { flex: 1, fontSize: 16, color: '#333', },
+  clearButton: { padding: 5, },
+  profileButton: { padding: 8, },
+  dropdownOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    justifyContent: 'flex-start', alignItems: 'center', zIndex: 11,
   },
-  searchContainer: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    ...SHADOWS.medium,
-    elevation: 4,
+  dropdownContent: {
+    width: '100%', padding: 20,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 20 : 60,
+    borderBottomLeftRadius: 20, borderBottomRightRadius: 20,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.2, shadowRadius: 10, },
+      android: { elevation: 10, },
+    }),
   },
-  backButtonContainer: {
-    flexDirection: "row",
-    alignItems: "center",
+  closeDropdownButton: { alignSelf: 'center', padding: 10, marginTop: 10, },
+  dropdownTitle: { fontSize: 28, fontWeight: 'bold', textAlign: 'center', marginBottom: 20, color: '#333', },
+  locationInputsContainer: {
+    backgroundColor: '#fff', borderRadius: 10, padding: 15, marginBottom: 20,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, },
+      android: { elevation: 3, },
+    }),
   },
-  dropdownToggle: {
-    padding: 8,
-    marginRight: 8,
-    backgroundColor: "#f1f1f1",
-    borderRadius: 20,
-    width: 40,
-    height: 40,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  dropdownToggleActive: {
-    backgroundColor: "rgba(56, 132, 255, 0.1)",
-  },
-  searchBarWrapper: {
-    flex: 1,
-  },
-  searchBarInput: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 8,
-    marginVertical: 4,
-    borderRadius: 8,
-    backgroundColor: "#f9f9f9",
-  },
-  searchInputIcon: {
-    marginRight: 12,
-  },
-  searchInputPlaceholder: {
-    fontSize: 15,
-    color: "#999",
-    flex: 1,
-  },
-  searchInputText: {
-    fontSize: 15,
-    color: "#333",
-    fontWeight: "500",
-    flex: 1,
-  },
-  clearInputButton: {
-    padding: 4,
-  },
+  inputRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee', },
+  inputIcon: { marginRight: 10, },
+  dropdownInput: { flex: 1, fontSize: 16, color: '#333', paddingVertical: 5, },
   swapButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: "#f1f1f1",
-    marginLeft: 8,
-    width: 40,
-    height: 40,
-    justifyContent: "center",
-    alignItems: "center",
+    position: 'absolute', right: 10, top: '50%',
+    transform: [{ translateY: -12 }], zIndex: 1,
+    backgroundColor: '#f0f0f0', borderRadius: 20, padding: 5,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, },
+      android: { elevation: 2, },
+    }),
   },
-  swapButtonActive: {
-    backgroundColor: "rgba(56, 132, 255, 0.1)",
+  transportModeContainer: { marginBottom: 20, },
+  sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 10, color: '#555', },
+  modeButtons: { flexDirection: 'row', justifyContent: 'space-around', backgroundColor: '#f0f0f0', borderRadius: 10, padding: 5, },
+  modeButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 8, },
+  selectedMode: { backgroundColor: '#007bff', },
+  modeButtonText: { marginLeft: 8, fontSize: 16, fontWeight: '500', color: '#333', },
+  selectedModeText: { color: '#fff', },
+  evacCentersScrollView: {
+    maxHeight: SCREEN_HEIGHT * 0.25, backgroundColor: '#fff', borderRadius: 10, marginBottom: 20,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, },
+      android: { elevation: 3, },
+    }),
   },
-  transportModeContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#eee",
-    marginTop: 4,
+  evacCenterItem: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#eee', },
+  evacCenterIcon: { marginRight: 10, },
+  evacCenterName: { fontSize: 16, color: '#333', },
+  noDataText: { textAlign: 'center', padding: 20, color: '#777', fontStyle: 'italic', },
+  calculateRouteButton: {
+    backgroundColor: '#007bff', padding: 15, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 10,
+    ...Platform.select({
+      ios: { shadowColor: '#007bff', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.3, shadowRadius: 5, },
+      android: { elevation: 5, },
+    }),
   },
-  transportModeButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: "#f1f1f1",
+  calculateRouteButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold', },
+  resultText: { fontSize: 18, fontWeight: 'bold', marginTop: 15, textAlign: 'center', color: '#28a745', },
+  errorTextSmall: { color: 'red', textAlign: 'center', marginTop: 10, fontSize: 14, },
+  bottomNav: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, height: FOOTER_HEIGHT,
+    backgroundColor: '#f8f8f8', borderTopWidth: 1, borderTopColor: '#eee',
+    justifyContent: 'center', alignItems: 'center', zIndex: 10,
   },
-  transportModeButtonActive: {
-    backgroundColor: "#3884ff",
-  },
-  transportModeLabel: {
-    fontSize: 13,
-    color: "#666",
-    marginLeft: 4,
-  },
-  transportModeLabelActive: {
-    color: "#fff",
-  },
-
-  // Fullscreen blur that respects footer
-  blurContainer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: -1,
-  },
-
-  // Pull indicator
-  pullIndicator: {
-    width: "100%",
-    alignItems: "center",
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  pullIndicatorBar: {
-    width: 40,
-    height: 5,
-    backgroundColor: "#ddd",
-    borderRadius: 3,
-  },
-
-  // Dropdown panel that stops above footer
-  dropdownPanel: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "white",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    ...SHADOWS.medium,
-  },
-
-  dropdownHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-
-  dropdownTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#333",
-  },
-
-  closeDropdownButton: {
-    padding: 8,
-  },
-
-  dropdownScrollContent: {
-    flex: 1,
-  },
-
-  dropdownScrollContentContainer: {
-    padding: 16,
-    paddingBottom: 32, // Extra padding at the bottom
-  },
-
-  // Recent searches UI
-  recentSearchesContainer: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    ...SHADOWS.small,
-  },
-  recentSearchesTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 12,
-    color: "#333",
-  },
-  recentSearchItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-  },
-  recentSearchText: {
-    fontSize: 15,
-    color: "#333",
-    marginLeft: 10,
-  },
-
-  contentContainer: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    ...SHADOWS.small,
-  },
-
-  dropdownBottomPanel: {
-    marginVertical: 16,
-  },
-
-  dropdownActionContainer: {
-    marginTop: 16,
-    marginBottom: 40,
-  },
-
-  navigationButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#3884ff",
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    ...SHADOWS.medium,
-  },
-
-  navigationButtonDisabled: {
-    backgroundColor: "#b3c7e6",
-  },
-
-  navigationButtonText: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#fff",
-    marginLeft: 10,
-  },
-
-  quickActionContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginTop: 16,
-  },
-
-  quickActionButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-
-  quickActionText: {
-    fontSize: 14,
-    color: "#666",
-    marginLeft: 8,
-  },
-
-  // Locations list
-  locationsListContainer: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-  },
-  locationsListTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 16,
-    color: "#333",
-  },
-  locationListItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  locationIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  locationInfoContainer: {
-    flex: 1,
-  },
-  locationTitle: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#333",
-  },
-  locationDescription: {
-    fontSize: 13,
-    color: "#666",
-    marginTop: 2,
-  },
-  locationActionContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  locationDistance: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#3884ff",
-    marginRight: 4,
-  },
-
-  // Legend
-  legendContainer: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    ...SHADOWS.small,
-  },
-  legendTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    marginBottom: 12,
-    color: "#333",
-  },
-  legendItems: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-  },
-  legendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-    width: "48%",
-  },
-  legendColor: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-  },
-  legendText: {
-    fontSize: 14,
-    color: "#333",
-    marginLeft: 8,
-  },
-  legendHelp: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 8,
-    textAlign: "center",
-  },
+  bottomNavText: { color: '#666', },
 });
 
 export default LocationScreen;

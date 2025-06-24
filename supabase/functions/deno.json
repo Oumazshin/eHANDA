@@ -1,0 +1,22 @@
+{
+  "imports": {
+    "https://esm.sh/@supabase/supabase-js@2.43.2": "https://esm.sh/@supabase/supabase-js@2.43.2",
+    "https://deno.land/std@0.168.0/http/server.ts": "https://deno.land/std@0.168.0/http/server.ts"
+  },
+  "tasks": {
+    "start": "deno run --allow-net --allow-env --allow-read --allow-write --allow-sys --unstable main.js"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window"],
+    "strict": true
+  },
+  "fmt": {
+    "exclude": ["_shared"]
+  },
+  "lint": {
+    "exclude": ["_shared"]
+  },
+  "deploy": {
+    "entrypoint": "index.ts"
+  }
+}
