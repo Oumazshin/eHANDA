@@ -828,7 +828,7 @@ const styles = StyleSheet.create({
   dropdownContent: {
     width: '100%', padding: 20,
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 20 : 60,
-    borderBottomLeftRadius: 20, borderBottomRightRadius: 20,
+    bottom: FOOTER_HEIGHT, borderBottomLeftRadius: 20, borderBottomRightRadius: 20,
     ...Platform.select({
       ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.2, shadowRadius: 10, },
       android: { elevation: 10, },
