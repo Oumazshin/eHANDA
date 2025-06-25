@@ -1,288 +1,255 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.43.2'
-import {
-  serve,
-} from 'https://deno.land/std@0.168.0/http/server.ts'
-import { corsHeaders } from '../_shared/cors.ts' // Assuming you have a cors.ts in _shared folder for CORS headers
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.43.2';
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { corsHeaders } from '../_shared/cors.js';
 
-// Dijkstra's algorithm implementation
-// This is a basic implementation suitable for demonstration.
-// For larger graphs, consider optimized data structures (e.g., Fibonacci heap for priority queue).
-function dijkstra(graph: Map<string, Map<string, number>>, startNode: string, endNode: string) {
-  const distances = new Map<string, number>();
-  const previousNodes = new Map<string, string | null>();
-  const unvisitedNodes = new Set<string>(); // Priority Queue simulation (can be optimized)
+function dijkstra(graph, startNode, endNode) {
+    const distances = new Map();
+    const previousNodes = new Map();
+    const unvisitedNodes = new Set();
 
-  // Initialize distances, previousNodes, and unvisitedNodes
-  for (const node of graph.keys()) {
-    distances.set(node, Infinity);
-    previousNodes.set(node, null);
-    unvisitedNodes.add(node);
-  }
-
-  distances.set(startNode, 0);
-
-  while (unvisitedNodes.size > 0) {
-    // Find the unvisited node with the smallest distance
-    let currentNode: string | null = null;
-    for (const node of unvisitedNodes) {
-      if (currentNode === null || distances.get(node)! < distances.get(currentNode)!) {
-        currentNode = node;
-      }
+    for (const node of graph.keys()) {
+        distances.set(node, Infinity);
+        previousNodes.set(node, null);
+        unvisitedNodes.add(node);
     }
 
-    if (currentNode === null || distances.get(currentNode) === Infinity) {
-      break; // No path to the end node or remaining unvisited nodes
-    }
+    distances.set(startNode, 0);
 
-    // If we've reached the end node, reconstruct the path
-    if (currentNode === endNode) {
-      const path: string[] = [];
-      let current: string | null = endNode;
-      while (current !== null) {
-        path.unshift(current);
-        current = previousNodes.get(current) || null;
-      }
-      return { path, distance: distances.get(endNode) };
-    }
-
-    unvisitedNodes.delete(currentNode); // Mark as visited
-
-    // Update distances for neighbors
-    const neighbors = graph.get(currentNode);
-    if (neighbors) {
-      for (const [neighbor, weight] of neighbors.entries()) {
-        const newDistance = distances.get(currentNode)! + weight;
-        if (newDistance < distances.get(neighbor)!) {
-          distances.set(neighbor, newDistance);
-          previousNodes.set(neighbor, currentNode);
+    while (unvisitedNodes.size > 0) {
+        let currentNode = null;
+        for (const node of unvisitedNodes) {
+            if (currentNode === null || distances.get(node) < distances.get(currentNode)) {
+                currentNode = node;
+            }
         }
-      }
-    }
-  }
 
-  return { path: [], distance: Infinity }; // No path found
+        if (currentNode === null || distances.get(currentNode) === Infinity) {
+            break; // No path to remaining unvisited nodes
+        }
+
+        if (currentNode === endNode) {
+            const path = [];
+            let current = endNode;
+            while (current !== null) {
+                path.unshift(current);
+                current = previousNodes.get(current) || null;
+            }
+            return { path, distance: distances.get(endNode) };
+        }
+
+        unvisitedNodes.delete(currentNode);
+
+        const neighbors = graph.get(currentNode);
+        if (neighbors) {
+            for (const [neighbor, weight] of neighbors.entries()) {
+                const newDistance = distances.get(currentNode) + weight;
+                if (newDistance < distances.get(neighbor)) {
+                    distances.set(neighbor, newDistance);
+                    previousNodes.set(neighbor, currentNode);
+                }
+            }
+        }
+    }
+    return { path: [], distance: Infinity };
 }
 
-
 serve(async (req) => {
-  // Handle CORS preflight requests
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
-  }
-
-  try {
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', // Use SERVICE_ROLE_KEY for server-side
-      {
-        auth: {
-          persistSession: false,
-        },
-      },
-    )
-
-    const {
-      start_latitude,
-      start_longitude,
-      end_location_id,
-    } = await req.json()
-
-    // NEW LOGS for received parameters
-    console.log('Received request with:');
-    console.log(`  start_latitude: ${start_latitude}`);
-    console.log(`  start_longitude: ${start_longitude}`);
-    console.log(`  end_location_id: ${end_location_id}`);
-
-
-    if (!start_latitude || !start_longitude || !end_location_id) {
-      return new Response(
-        JSON.stringify({
-          error:
-            'Missing required parameters: start_latitude, start_longitude, end_location_id',
-        }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 400,
-        },
-      )
+    let requestBody;
+    try {
+        requestBody = await req.clone().json();
+        console.log('Incoming Request Body:', requestBody); //
+    } catch (e) {
+        console.error('Error parsing request body:', e);
+        return new Response(JSON.stringify({ error: 'Invalid JSON in request body.' }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 400
+        });
     }
 
-    // 1. Fetch all locations (nodes)
-    const { data: locations, error: locationsError } = await supabaseClient
-      .from('location')
-      .select('id, name, latitude, longitude, type') // Added 'type' for deeper debugging
-
-    if (locationsError) {
-      console.error('Error fetching locations:', locationsError)
-      return new Response(
-        JSON.stringify({ error: 'Failed to fetch locations' }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 500,
-        },
-      )
-    }
-    console.log(`Fetched ${locations.length} locations.`);
-
-    // 2. Fetch all edges
-    const { data: edges, error: edgesError } = await supabaseClient
-      .from('edges')
-      .select('from_location_id, to_location_id, weight, direction')
-
-    if (edgesError) {
-      console.error('Error fetching edges:', edgesError)
-      return new Response(
-        JSON.stringify({ error: 'Failed to fetch edges' }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 500,
-        },
-      )
-    }
-    console.log(`Fetched ${edges.length} edges.`);
-
-
-    // 3. Build the graph representation
-    const graph = new Map<string, Map<string, number>>();
-    const locationMap = new Map<string, { id: string; name: string; latitude: number; longitude: number; type: string }>(); // Added type
-
-    for (const loc of locations) {
-      graph.set(loc.id, new Map<string, number>());
-      locationMap.set(loc.id, loc);
+    if (req.method === 'OPTIONS') {
+        return new Response('ok', { headers: corsHeaders });
     }
 
-    for (const edge of edges) {
-      // Ensure from/to nodes exist in graph before adding edge
-      if (graph.has(edge.from_location_id) && graph.has(edge.to_location_id)) {
-        graph.get(edge.from_location_id)?.set(edge.to_location_id, edge.weight);
-        if (edge.direction === 'bidirectional') {
-          graph.get(edge.to_location_id)?.set(edge.from_location_id, edge.weight);
+    const { start_latitude, start_longitude, end_location_id } = requestBody;
+
+    try {
+        if (!start_latitude || !start_longitude || !end_location_id) {
+            console.error('Missing required parameters in request body.');
+            return new Response(JSON.stringify({ error: 'Missing required parameters: start_latitude, start_longitude, end_location_id' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 });
         }
-      } else {
-        // Log if an edge references a node that wasn't fetched/doesn't exist
-        console.warn(`Skipping edge: ${edge.from_location_id} -> ${edge.to_location_id}. One or both nodes not found in locations.`);
-      }
+
+        const supabaseClient = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { persistSession: false } });
+
+        console.log('Fetching locations...');
+        const { data: locations, error: locationsError } = await supabaseClient.from('location').select('id, name, latitude, longitude, type, osm_id').limit(2000); // Select 'type' and 'osm_id' too for full location details
+        if (locationsError) {
+            console.error('Error fetching locations:', locationsError);
+            return new Response(JSON.stringify({ error: 'Failed to fetch locations' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 });
+        }
+        console.log('Fetching edges...');
+        const { data: edges, error: edgesError } = await supabaseClient.from('edges').select('id, from_location_id, to_location_id, weight, directional').limit(3000);
+        if (edgesError) {
+            console.error('Error fetching edges:', edgesError);
+            return new Response(JSON.stringify({ error: 'Failed to fetch edges' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 });
+        }
+
+        console.log(`Building graph with ${locations.length} locations and ${edges.length} edges.`);
+        console.log(`Graph initialized with ${locations.length} nodes from locations.`);
+
+        const graph = new Map();
+        // Changed locationMap to store full location objects
+        const locationMap = new Map(); 
+
+        for (const loc of locations) {
+            graph.set(loc.id, new Map());
+            locationMap.set(loc.id, loc); // Store the entire location object
+        }
+
+        // Edge Processing
+        console.log('Starting edge processing loop...');
+        let processedEdgeCount = 0;
+        try {
+            for (const edge of edges) {
+                processedEdgeCount++;
+
+                if (processedEdgeCount % 100 === 0 || processedEdgeCount === 1) {
+                    console.log(`Processing edge ${processedEdgeCount}/${edges.length}... (Edge ID: ${edge?.id})`);
+                }
+
+                try {
+                    // Check for required properties and their types for a valid edge
+                    if (!edge || typeof edge.from_location_id !== 'string' || typeof edge.to_location_id !== 'string' || typeof edge.weight !== 'number' || !['bidirectional', 'unidirectional'].includes(edge.directional)) {
+                        console.error(`ERROR: Malformed edge data encountered (Edge ID: ${edge?.id}). Skipping. Edge:`, JSON.stringify(edge));
+                        continue;
+                    }
+                    
+                    // Check if from_location_id and to_location_id exist in our locationMap
+                    if (!locationMap.has(edge.from_location_id)) {
+                        console.warn(`Warning: from_location_id ${edge.from_location_id} from edge ${edge.id} not found in locationsMap. Skipping edge.`);
+                        continue;
+                    }
+                    if (!locationMap.has(edge.to_location_id)) {
+                        console.warn(`Warning: to_location_id ${edge.to_location_id} from edge ${edge.id} not found in locationsMap. Skipping edge.`);
+                        // This specific warning `Warning: Could not add reverse edge...` can also be caught here
+                        continue;
+                    }
+
+
+                    const fromNode = graph.get(edge.from_location_id);
+                    const targetNodeMap = graph.get(edge.to_location_id); // This is `graph.get(to_location_id)` for the reverse edge check
+
+                    if (isNaN(edge.weight)) {
+                       console.error(`ERROR: Edge ID ${edge.id} has invalid weight: ${edge.weight}. Skipping.`);
+                       continue;
+                    }
+
+                    fromNode.set(edge.to_location_id, edge.weight);
+                    // console.log(`Successfully added forward edge from ${edge.from_location_id} to ${edge.to_location_id}`);
+
+                    if (edge.directional === 'bidirectional') {
+                        // Check if the target node for the reverse edge also exists in the graph's node list
+                        if (graph.has(edge.to_location_id)) { // This is a more direct check
+                            graph.get(edge.to_location_id).set(edge.from_location_id, edge.weight);
+                            // console.log(`Successfully added reverse edge from ${edge.to_location_id} to ${edge.from_location_id}`);
+                        } else {
+                            // This scenario is now handled by the `!locationMap.has(edge.to_location_id)` check above.
+                            // But keeping this warning for clarity if the graph structure itself is somehow inconsistent.
+                            console.warn(`Warning: Could not add reverse edge for edge ID ${edge.id} because to_location_id ${edge.to_location_id} not found in locations for bidirectional edge.`);
+                        }
+                    }
+                } catch (innerEdgeError) {
+                    console.error(`ERROR caught while processing edge ID ${edge?.id} at iteration ${processedEdgeCount}:`, innerEdgeError);
+                    console.error('Problematic Edge Data:', JSON.stringify(edge));
+                    continue;
+                }
+            }
+        } catch (graphBuildingError) {
+            console.error(`Error caught during graph building loop (outer catch) at edge count ${processedEdgeCount}:`, graphBuildingError);
+            return new Response(JSON.stringify({ error: `Graph building failed during edge processing: ${graphBuildingError.message || 'Unknown error'}` }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 });
+        }
+        // 4. Find the closest graph node to the user's start location (GPS).
+        console.log('Starting closest node search...');
+        let userStartNodeId = null;
+        let minDistanceToUser = Infinity;
+        let userStartNodeCoords = null; // Store coordinates of the closest road node.
+
+        for (const loc of locations) {
+            // Skip locations that are not road nodes if you only want to snap to roads for initial point
+            // if (loc.type !== 'road_node') { // Uncomment if you only want to snap to road_node type
+            //     continue;
+            // }
+
+            // Validate coordinates.
+            if (typeof loc.latitude !== 'number' || typeof loc.longitude !== 'number' || isNaN(loc.latitude) || isNaN(loc.longitude)) {
+                 console.warn(`Warning: Location ID ${loc.id} has invalid latitude/longitude. Skipping in distance calculation.`);
+                 continue;
+            }
+            // Calculate Euclidean distance (approximation for small geographic areas).
+            const distance = Math.sqrt(Math.pow(loc.latitude - start_latitude, 2) + Math.pow(loc.longitude - start_longitude, 2));
+            if (distance < minDistanceToUser) {
+                minDistanceToUser = distance;
+                userStartNodeId = loc.id;
+                userStartNodeCoords = { latitude: loc.latitude, longitude: loc.longitude };
+            }
+        }
+        console.log(`Determined userStartNodeId: ${userStartNodeId} (Distance: ${minDistanceToUser.toFixed(3)} degrees approx)`);
+
+        // Validate the determined start node.
+        if (!userStartNodeId || !graph.has(userStartNodeId) || !userStartNodeCoords) {
+            console.warn(`User start node ID ${userStartNodeId} is NOT present in the constructed graph, or coordinates could not be determined! Returning 404.`);
+            return new Response(JSON.stringify({ error: 'Could not find a starting node near your location in the graph network.' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 });
+        }
+        // Validate the end node.
+        console.log(`Checking existence of end_location_id (${end_location_id}) in graph: ${graph.has(end_location_id)}`);
+        if (!graph.has(end_location_id)) {
+            console.warn(`End location ID ${end_location_id} is NOT present in the constructed graph! Returning 404.`);
+            return new Response(JSON.stringify({ error: 'Selected evacuation area not found in the map data network.' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 });
+        }
+        console.log('Graph nodes existence check complete. Proceeding to Dijkstra.');
+
+        // 5. Run Dijkstra's Algorithm.
+        const { path: routeNodeIds, distance: routeDistance } = dijkstra(graph, userStartNodeId, end_location_id);
+        console.log(`Result from Dijkstra: path length=${routeNodeIds.length}, distance=${routeDistance}`);
+        
+        // Handle case where no path is found.
+        if (routeDistance === Infinity) {
+            console.warn(`Dijkstra returned Infinity. No path found from ${userStartNodeId} to ${end_location_id}. Returning 404.`);
+            return new Response(JSON.stringify({ error: 'No path found to the evacuation area.' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 });
+        }
+
+        // 6. Convert path node IDs to full location coordinates for polyline.
+        console.log('Path found. Converting node IDs to full location details.');
+        const routeCoordinates = routeNodeIds.map((nodeId) => {
+            const loc = locationMap.get(nodeId);
+            // This check ensures every node in the path actually has coordinates.
+            if (!loc) {
+                console.warn(`Warning: Node ID ${nodeId} in path not found in locationMap. This indicates a graph inconsistency.`);
+                return null;
+            }
+            return { latitude: loc.latitude, longitude: loc.longitude };
+        }).filter(Boolean); // Filter out any nulls if inconsistent nodes were found.
+
+        // 7. Return the success response.
+        return new Response(JSON.stringify({
+            path: routeCoordinates,          // Array of {latitude, longitude} objects for polyline.
+            total_distance: routeDistance,   // Raw distance from Dijkstra.
+            start_node_id: userStartNodeId,
+            end_node_id: end_location_id,
+            start_node_coordinates: userStartNodeCoords // Coordinates of the closest road node.
+        }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 200
+        });
+
+    } catch (error) { 
+        // Catch any unhandled errors during the request processing.
+        console.error('Final Catch Block Error (likely unhandled error or timeout):', error);
+        return new Response(JSON.stringify({
+            error: `Internal Server Error: ${error.message || 'Unknown error during execution.'}`,
+            stack: error.stack // Include stack trace for debugging.
+        }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 500
+        });
     }
-    console.log(`Graph built with ${graph.size} nodes.`);
-    let totalEdgesInGraph = 0;
-    for (const [, neighbors] of graph.entries()) {
-      totalEdgesInGraph += neighbors.size;
-    }
-    console.log(`Total edges in constructed graph: ${totalEdgesInGraph}`);
-
-
-    // 4. Find the closest graph node to the user's start location (GPS)
-    let userStartNodeId: string | null = null;
-    let minDistanceToUser = Infinity;
-    let closestNodeDetails = null; // To store details of the closest node
-
-    for (const loc of locations) {
-      // Using Haversine distance for more accurate proximity calculation
-      const R = 6371; // Radius of Earth in kilometers
-      const dLat = (loc.latitude - start_latitude) * Math.PI / 180;
-      const dLon = (loc.longitude - start_longitude) * Math.PI / 180;
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(start_latitude * Math.PI / 180) * Math.cos(loc.latitude * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      const distance = R * c;
-
-      if (distance < minDistanceToUser) {
-        minDistanceToUser = distance;
-        userStartNodeId = loc.id;
-        closestNodeDetails = loc; // Store details
-      }
-    }
-
-    console.log(`Determined userStartNodeId: ${userStartNodeId} (Distance: ${minDistanceToUser.toFixed(3)} km)`);
-    if (closestNodeDetails) {
-        console.log(`  Details of closest start node: ID=${closestNodeDetails.id}, Name="${closestNodeDetails.name}", Type=${closestNodeDetails.type}`);
-    } else {
-        console.log('  No closest node details found (this indicates an issue).');
-    }
-
-    console.log(`Does userStartNodeId exist in graph? ${graph.has(userStartNodeId!)}`);
-    if (userStartNodeId && graph.has(userStartNodeId)) {
-        console.log(`Neighbors of userStartNodeId (${userStartNodeId}):`, Array.from(graph.get(userStartNodeId!)?.entries() || []));
-    } else {
-        console.log(`Cannot get neighbors for userStartNodeId as it's null or not in graph.`);
-    }
-
-
-    if (!userStartNodeId) {
-      return new Response(
-        JSON.stringify({ error: 'Could not find a starting node near your location.' }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 404,
-        },
-      );
-    }
-
-    // Ensure the end_location_id exists in our graph
-    console.log(`Does end_location_id (${end_location_id}) exist in graph? ${graph.has(end_location_id)}`);
-    if (graph.has(end_location_id)) {
-        const endNodeDetails = locationMap.get(end_location_id);
-        console.log(`  Details of end node: ID=${endNodeDetails?.id}, Name="${endNodeDetails?.name}", Type=${endNodeDetails?.type}`);
-        console.log(`Neighbors of end_location_id (${end_location_id}):`, Array.from(graph.get(end_location_id)?.entries() || []));
-    } else {
-        console.log('  End node not found in graph.');
-    }
-
-
-    if (!graph.has(end_location_id)) {
-      return new Response(
-        JSON.stringify({ error: 'Selected evacuation area not found in the map data.' }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 404,
-        },
-      );
-    }
-
-    // 5. Run Dijkstra's Algorithm
-    const { path: routeNodeIds, distance: routeDistance } = dijkstra(graph, userStartNodeId, end_location_id);
-
-    console.log(`Dijkstra result: routeDistance = ${routeDistance}`);
-    console.log(`Dijkstra result: routeNodeIds length = ${routeNodeIds.length}`);
-
-    if (routeDistance === Infinity) {
-      return new Response(
-        JSON.stringify({ error: 'No path found to the evacuation area.' }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 404,
-        },
-      );
-    }
-
-    // 6. Convert path node IDs to location details (name, lat, long)
-    const routeDetails = routeNodeIds.map(nodeId => locationMap.get(nodeId)).filter(Boolean);
-
-    return new Response(JSON.stringify({
-      path: routeDetails,
-      total_distance: routeDistance,
-      start_node_id: userStartNodeId,
-      end_node_id: end_location_id,
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
-    })
-  } catch (error) {
-    console.error('Error processing request:', error)
-    return new Response(
-      JSON.stringify({ error: error.message || 'Internal Server Error' }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 500,
-      },
-    )
-  }
-})
-
-// _shared/cors.ts content (create this file if you haven't already)
-// export const corsHeaders = {
-//   'Access-Control-Allow-Origin': '*', // Or specific origins for production
-//   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-// }
+});

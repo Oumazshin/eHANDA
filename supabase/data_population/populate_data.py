@@ -29,9 +29,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 # --- OSMnx Configuration ---
 # Define the place you want to get the map data for
-PLACE_NAME = "Hagonoy, Bulacan, Philippines"
+PLACE_NAME = "Hagonoy, Bulacan"
 # Network type: 'walk', 'drive', 'bike', 'all', 'all_private'
-NETWORK_TYPE = "all" # Get drivable streets
+NETWORK_TYPE = "walk"
 
 # --- Script Logic ---
 
@@ -178,11 +178,8 @@ def populate_database_with_osmnx():
         print("\nAdding/Updating specific Evacuation Centers (if not part of the road network)...")
         EVACUATION_CENTERS_TO_ADD = [
             # Example: Sta. Monica Chapel as an evac center, connecting to a nearby road node
-            {"name": "Santa Monica Chapel", "latitude": 14.8395, "longitude": 120.7608, "type": "evacuation_center"},
             {"name": "Santa Monica National High School - Main", "latitude": 14.839295564617862, "longitude": 120.73736897910136,"type": "evacuation_center"},
             {"name": "Santa Monica Elementary School", "latitude": 14.838881, "longitude": 120.737676,"type": "evacuation_center"},
-            {"name": "Hagonoy Sports Complex Evac", "latitude": 14.8210, "longitude": 120.7620,"type": "evacuation_center"},
-            {"name": "Hagonoy Central School", "latitude": 14.836164, "longitude": 120.735031,"type": "evacuation_center"},
             {"name": "Santa Monica Barangay Hall", "latitude": 14.839561347969248, "longitude": 120.73877010982662, "type": "evacuation_center"}
         ]
         

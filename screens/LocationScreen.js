@@ -155,6 +155,34 @@ const LocationScreen = ({ navigation = {} }) => {
     }
   };
 
+    /*
+    const hardcodedEvacuationCenters = [
+        {
+            id: 'a448253c-fda0-4b53-bba9-74f1bb8aaa2a', // Use your actual ID
+            name: 'Santa Monica National High School - Main',
+            latitude: 14.8392955646179,
+            longitude: 120.737368979101,
+            type: 'evacuation_center',
+            // Add other fields if your map markers or list specifically need them
+            // like osm_id: null, created_at: '2025-06-24T19:09:12.0Z'
+        },
+        {
+            id: 'a5812528-daf3-4ffd-9aa4-019ff4be14ce', // Use your actual ID
+            name: 'Santa Monica Elementary School',
+            latitude: 14.838881,
+            longitude: 120.737676,
+            type: 'evacuation_center',
+        },
+        {
+            id: '3e19a6d6-f2aa-4c38-8256-d7bbf411e0e0', // Use your actual ID
+            name: 'Santa Monica Barangay Hall',
+            latitude: 14.8395613479692,
+            longitude: 120.738770109827,
+            type: 'evacuation_center',
+        },
+        // Add all your other evacuation centers here following the same format
+    ];
+    */ 
 
   const fetchAllLocations = async () => {
     setLoading(true);
@@ -162,7 +190,7 @@ const LocationScreen = ({ navigation = {} }) => {
     console.log("--- fetchAllLocations started (Log from inside the function) ---");
     try {
       const { data, error } = await supabase
-        .from('location') // Corrected to 'location' (singular) as per your table name
+        .from('location')
         .select('id, name, latitude, longitude, type, osm_id');
 
       if (error) {
@@ -170,33 +198,26 @@ const LocationScreen = ({ navigation = {} }) => {
         throw new Error(error.message);
       }
 
-      console.log('Raw data fetched from Supabase:', data); // NEW LOG
-      
-      // NEW: Log each location's ID, Name, and Type for inspection
-      if (data && data.length > 0) {
-        data.forEach(loc => {
-            console.log(`Location: ID=${loc.id}, Name="${loc.name}", Type="${loc.type}"`);
-        });
-      }
+      console.log('Raw data fetched from Supabase:', data);
 
-      setAllSupabaseLocations(data || []);
-      // Robust filtering for evacuation centers: lowercase and trim
-      const filteredEvacCenters = (data || []).filter(loc => 
+      const fetchedEvacCenters = (data || []).filter(loc =>
         loc.type && typeof loc.type === 'string' && loc.type.toLowerCase().trim() === 'evacuation_center'
       );
-      setEvacuationCenters(filteredEvacCenters);
-      
-      console.log('All Supabase Locations (after setAllSupabaseLocations - will be stale here):', allSupabaseLocations.length); // will be stale here
-      console.log('Filtered Evacuation Centers (after setEvacuationCenters):', filteredEvacCenters);
-      console.log(`Number of Evacuation Centers found: ${filteredEvacCenters.length}`);
 
-      console.log('Successfully fetched locations (from fetchAllLocations):', data);
-    } catch (e) {
-      console.error('Caught error during fetchAllLocations (outer catch):', e);
-      setError(`Failed to load locations: ${e.message}`);
+      setAllSupabaseLocations(data || []);
+      setEvacuationCenters(fetchedEvacCenters);
+
+      console.log('Fetched Evacuation Centers from Database:', fetchedEvacCenters);
+      console.log(`Number of Evacuation Centers fetched from DB: ${fetchedEvacCenters.length}`);
+
+      console.log('Successfully loaded locations from database, including filtered evacuation centers.');
+
+    } catch (err) {
+      console.error("Error in fetchAllLocations:", err);
+      setError(err.message);
     } finally {
       setLoading(false);
-      console.log("--- fetchAllLocations finished (Log from inside the function) ---");
+      console.log("--- fetchAllLocations finished ---");
     }
   };
 
@@ -292,34 +313,37 @@ const LocationScreen = ({ navigation = {} }) => {
       const endLocationId = endEvacCenter.id;
       console.log(`Destination Evac Center ID: ${endLocationId}`);
 
-      const EDGE_FUNCTION_URL = 'https://ejzoaoihgrzccpiwtwsb.supabase.co/functions/v1/find-shortest-path';
-
+      const EDGE_FUNCTION_NAME = 'find-shortest-path';
       const payload = {
         start_latitude: actualStartLatitude,
         start_longitude: actualStartLongitude,
         end_location_id: endLocationId,
       };
 
-      console.log('Calling Edge Function with payload:', payload);
+        console.log(`Calling Edge Function '${EDGE_FUNCTION_NAME}' with payload:`, payload);
 
-      console.log("Sending fetch request to Edge Function...");
-      const response = await fetch(EDGE_FUNCTION_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseAnonKey}`,
-        },
-        body: JSON.stringify(payload),
-      });
+        // *** THE CRITICAL CHANGE: Use supabase.functions.invoke() ***
+        const { data, error: funcError } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
+            body: payload,
+            // You don't need to manually set 'Content-Type' or 'Authorization' here;
+            // supabase.functions.invoke() handles them based on your client's state.
+        });
 
-      console.log(`Edge Function response status: ${response.status}`);
-      const data = await response.json();
-      console.log("Edge Function raw response data:", data);
+        if (funcError) {
+            console.error("Edge Function invocation error:", funcError);
+            // The error object from invoke() is structured differently.
+            // data might contain more details if the function returned a JSON error.
+            throw new Error(funcError.message || `Edge Function invocation failed: ${funcError.status || funcError.code}`);
+        }
 
-      if (!response.ok) {
-        console.error("Edge Function returned non-OK status. Error data:", data);
-        throw new Error(data.error || `Edge Function error: ${response.status} ${response.statusText}`);
-      }
+        // The 'data' received here is the direct response from your Edge Function's Response.json()
+        console.log("Edge Function raw response data:", data);
+
+        // Validate the structure of the data returned by your Edge Function
+        if (!data || !Array.isArray(data.path) || data.total_distance === undefined) {
+             console.error("Invalid response structure from Edge Function:", data);
+             throw new Error(data?.error || "Invalid response structure from routing service.");
+        }
 
       setRoute(data.path);
       setTotalDistance(data.total_distance);
